@@ -24,6 +24,7 @@ svg{width:100%;height:auto;display:block}
 .card h2{font-size:15px;margin:0 0 8px}
 table{border-collapse:collapse;width:100%;font-size:13px}
 td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.btn{display:inline-block;padding:6px 14px;border-radius:6px;background:var(--warn);color:#fff;text-decoration:none;font-size:13px}.btn.off{background:#999;pointer-events:none}
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
 .t{cursor:pointer}.t:hover .top{stroke-width:3;stroke:var(--warn)}
 text{font-family:inherit;fill:var(--fg);pointer-events:none}
@@ -40,6 +41,10 @@ text{font-family:inherit;fill:var(--fg);pointer-events:none}
   <div class="card"><h2>選取桌位</h2><div id="info">點選地圖上的圓桌查看資訊。</div></div>
   <div class="card"><h2>統計</h2><div id="stats"></div></div>
 </div>
+<div class="card" style="margin-top:14px"><h2>貴賓回函</h2>
+<p style="margin:0 0 8px;font-size:13px" id="vipText"></p>
+<p style="margin:0 0 8px"><a id="vipLink" class="btn" target="_blank" rel="noopener"></a></p>
+<table id="vipTbl"></table></div>
 <div class="card" style="margin-top:14px"><h2>分區說明與動線</h2><table id="zones"></table></div>
 </main>
 <script>
@@ -48,6 +53,7 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 function el(tag,a={},txt,p=svg){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e}
 const pts=a=>a.map(p=>p.join(",")).join(" ");
 function label(x,y,t,fs=22,a={}){t.split("\n").forEach((l,i,arr)=>el("text",{x,y:y+(i-(arr.length-1)/2)*fs*1.15+fs*.35,"text-anchor":"middle","font-size":fs,...a},l))}
+const VIP_FORM_URL=""; // ← 貴賓回函 Google 表單網址,建立後貼在這裡
 const ANG=22.1; // 雲24 線斜率
 
 // ── 底圖 ──
@@ -90,8 +96,8 @@ label(935,1250,"BUFFET",22,{transform:`rotate(${ANG} 935 1250)`,style:"fill:#fff
 label(1095,1315,"BUFFET",22,{transform:`rotate(${ANG} 1095 1315)`,style:"fill:#fff"});
 label(770,1650,"BUFFET",22,{style:"fill:#fff"});
 // 舞台、音控、醫護、表演團體
-el("rect",{x:970,y:1590,width:62,height:34,fill:css("--stage"),rx:3});
-label(1001,1607,"舞台",22,{style:"fill:#fff"});
+el("rect",{x:973,y:1573,width:54,height:48,fill:css("--stage"),rx:3,transform:"rotate(20 1000 1597)"});
+label(1000,1590,"舞台",22,{style:"fill:#fff"});label(1000,1610,"8.1×7.2 m",14,{style:"fill:#fff"});
 [["音控區",1050],["音控區",1070],["醫護站",1090],["表演\n團體區",1110],["表演\n團體區",1130]].forEach(([t,x],i)=>{
   el("rect",{x:x-9,y:1628+i*3,width:18,height:30,fill:"#fff",stroke:"#555","stroke-width":1.5,transform:`rotate(${i*4-8} ${x} ${1643})`})});
 label(1090,1692,"音控・醫護站・表演團體",16);
@@ -103,43 +109,53 @@ const tables=[];
 for(let r=0;r<2;r++)for(let c=0;c<5;c++)tables.push({x:580+36*c,y:1298+r*40,zone:"戶外用餐區",grp:"池北"});
 [[400,1566],[460,1566],[520,1566],[580,1566],[640,1566],[705,1522],[785,1530]].forEach(([x,y])=>tables.push({x,y,zone:"戶外用餐區",grp:"池南"}));
 tables.forEach((t,i)=>{t.id="O"+(i+1)});
-// 休閒用餐區 300 人(8 頂星形帳篷,共 30 桌)
-const tents=[[945,1375],[1035,1428],[1105,1470],[1190,1490],[905,1478],[1010,1530],[1120,1555],[1212,1555]],tentCount=[4,4,4,4,4,4,3,3];
-const tentBase=[];
-tents.forEach(([cx,cy],k)=>{const p=[];for(let i=0;i<16;i++){const a=i/16*2*Math.PI,r=i%2?26:46;p.push([cx+r*Math.cos(a),cy+r*Math.sin(a)])}
-  el("polygon",{points:pts(p),fill:css("--tent"),stroke:css("--tentst"),"stroke-width":2});
-  const off=[[-14,-14],[14,-14],[-14,14],[14,14]];
-  for(let j=0;j<tentCount[k];j++)tables.push({x:cx+off[j][0],y:cy+off[j][1],zone:"休閒用餐區",grp:`帳篷 ${k+1}`,id:`T${k+1}-${j+1}`,tent:true})});
+// 休閒用餐區 300 人:主辦圖共 7 頂星形帳篷(1、4、6 斜放,2、3、5、7 直放),共 30 桌
+// 中心點由主辦圖量測;th = 帳篷長軸角度;n = 桌數;VIP 為建議的貴賓帳篷(離舞台最近)
+const tents=[{x:950,y:1380,th:22,n:5},{x:1030,y:1435,th:90,n:4},{x:1100,y:1467,th:90,n:4},{x:1193,y:1487,th:22,n:5},
+             {x:917,y:1482,th:90,n:4},{x:1028,y:1537,th:22,n:4,vip:true},{x:1140,y:1552,th:90,n:4}];
+tents.forEach((T,k)=>{const rad=T.th*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad),p=[];
+  for(let i=0;i<12;i++){const a=rad+i*Math.PI/6,rr=i%2?24:(i%6===0?54:42);p.push([T.x+rr*Math.cos(a),T.y+rr*Math.sin(a)])}
+  el("polygon",{points:pts(p),fill:css("--tent"),stroke:T.vip?"#b8860b":css("--tentst"),"stroke-width":T.vip?4:2});
+  const off=T.n===5?[[-24,-14],[24,-14],[-24,14],[24,14],[0,0]]:[[-14,-15],[14,-15],[-14,15],[14,15]];
+  off.forEach(([u,v],j)=>tables.push({x:T.x+u*c-v*sn,y:T.y+u*sn+v*c,zone:"休閒用餐區",grp:`帳篷 ${k+1}${T.vip?"(建議貴賓帳篷)":""}`,id:`T${k+1}-${j+1}`,tent:true,vip:!!T.vip}))});
 tables.forEach(t=>{const g=el("g",{class:"t"});const cr=t.tent?3.2:3.6,dr=t.tent?9:11,tr=t.tent?6.5:8;
   for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:t.x+dr*Math.cos(a),cy:t.y+dr*Math.sin(a),r:cr,fill:css("--tblst")},null,g)}
-  el("circle",{class:"top",cx:t.x,cy:t.y,r:tr,fill:css("--tbl"),stroke:css("--tblst"),"stroke-width":1.5},null,g);
+  el("circle",{class:"top",cx:t.x,cy:t.y,r:tr,fill:t.vip?"#f2c14e":css("--tbl"),stroke:css("--tblst"),"stroke-width":1.5},null,g);
   g.addEventListener("click",()=>show(t))});
 label(540,1236,"戶外用餐區\n200 人",26,{style:"fill:#fff;font-weight:700"});
-label(1130,1632,"休閒用餐區 300 人",24,{style:"fill:#222;font-weight:700"});
+label(1215,1632,"休閒用餐區 300 人\n(7 頂帳篷)",19,{style:"fill:#222;font-weight:700"});
 
 // 比例尺(約 6.7 px = 1 m)與指北
 el("rect",{x:120,y:1730,width:134,height:7,fill:"#222"});label(187,1716,"約 20 m",18);
 
 // 資訊與統計
 const info=document.getElementById("info");
-function show(t){info.innerHTML=`<b>${t.id} 桌</b><br>座位:10 席<br>區域:${t.zone}(${t.grp})`}
+function show(t){info.innerHTML=`<b>${t.id} 桌</b>${t.vip?"(貴賓桌・建議)":""}<br>座位:10 席<br>區域:${t.zone}(${t.grp})${t.vip&&VIP_FORM_URL?`<br><a href="${VIP_FORM_URL}" target="_blank" rel="noopener">貴賓回函表單</a>`:""}`}
 const nO=tables.filter(t=>t.zone==="戶外用餐區").length,nT=tables.length-nO;
 document.getElementById("stats").innerHTML=`<table>
 <tr><td>戶外用餐區</td><td>${nO} 桌 = ${nO*10} 人</td></tr>
-<tr><td>休閒用餐區</td><td>${nT} 桌 = ${nT*10} 人(8 頂帳篷)</td></tr>
+<tr><td>休閒用餐區</td><td>${nT} 桌 = ${nT*10} 人(7 頂帳篷,每頂約 ${Math.round(nT*10/7)} 人)</td></tr>
 <tr><td>合計</td><td><b>${tables.length*10}</b> 人(${tables.length} 桌)</td></tr>
 <tr><td>BUFFET</td><td>8 組(北側 5、南側 3)</td></tr>
+<tr><td>舞台</td><td>8.1×7.2 m(約 58 m²)</td></tr>
 <tr><td>市集區</td><td>沿雲24 鄉道,約 24 攤</td></tr></table>
 <p style="font-size:12px;margin:8px 0 0">每桌 10 人為推算;原圖只標區域人數,未標桌數。</p>`;
 document.getElementById("zones").innerHTML=`<tr><th>區域</th><th>說明</th></tr>
 <tr><td><span class="sw" style="background:#fff;border:1px solid var(--tblst)"></span>戶外用餐區</td><td>200 人。圓桌分佈在池北、池南與西北草地,環繞生態池</td></tr>
-<tr><td><span class="sw" style="background:var(--tent)"></span>休閒用餐區</td><td>300 人。8 頂星形帳篷,靠近入口與舞台</td></tr>
+<tr><td><span class="sw" style="background:var(--tent)"></span>休閒用餐區</td><td>300 人。依主辦圖共 7 頂星形帳篷(4 頂直放、3 頂斜放),靠近入口與舞台</td></tr>
 <tr><td><span class="sw" style="background:var(--buf)"></span>BUFFET</td><td>取餐點分散在環園步道的北側(沿道路)與南側,縮短排隊距離</td></tr>
-<tr><td><span class="sw" style="background:var(--stage)"></span>舞台與後台</td><td>舞台在南側步道旁;音控、醫護站、表演團體區緊鄰舞台東側</td></tr>
+<tr><td><span class="sw" style="background:var(--stage)"></span>舞台與後台</td><td>舞台約 8.1×7.2 m,在南側步道旁;音控、醫護站、表演團體區緊鄰舞台東側</td></tr>
 <tr><td><span class="sw" style="background:#e07a1f"></span>入口</td><td>東側圓形廣場。貴賓報到區、服務台、成果展示區都設在入口周邊</td></tr>
 <tr><td><span class="sw" style="background:var(--mkt)"></span>市集區</td><td>沿雲24 鄉道的東北側,與用餐區分開</td></tr>
 <tr><td><span class="sw" style="background:var(--prep)"></span>備餐區</td><td>東南角,餐點由此經南側步道送往各 BUFFET</td></tr>
 <tr><td><span class="sw" style="background:var(--pond)"></span>生態池</td><td>既有,禁入;建議設護欄</td></tr>`;
+
+// 貴賓回函
+const vipT=tables.filter(t=>t.vip);
+const lk=document.getElementById("vipLink");
+document.getElementById("vipText").textContent=VIP_FORM_URL?"貴賓請先填寫回函,主辦單位依回函結果安排桌位。":"貴賓回函 Google 表單尚未建立;建立後把網址填入程式碼最上方的 VIP_FORM_URL,這裡就會出現連結。";
+if(VIP_FORM_URL){lk.href=VIP_FORM_URL;lk.textContent="填寫貴賓回函"}else{lk.className="btn off";lk.textContent="回函連結尚未設定"}
+document.getElementById("vipTbl").innerHTML="<tr><th>桌號</th><th>貴賓 / 單位</th><th>人數</th><th>備註</th></tr>"+vipT.map(t=>`<tr><td>${t.id}</td><td>(回函後填入)</td><td>— / 10</td><td></td></tr>`).join("");
 
 // 視角切換
 const views={"全區":"60 830 1790 940","戶外用餐區":"200 1080 760 640","休閒用餐區與舞台":"820 1280 560 440","入口與市集":"1180 1280 660 440"};

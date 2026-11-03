@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>西螺森活武樹園區 場地配置圖</title>
 <style>
-:root{--bg:#f6f4ee;--fg:#222;--card:#fff;--line:#d8d3c4;--grass:#cfe3b4;--wild:#b9d19a;--wood:#6f8f5a;--pond:#8fc3da;--road:#8b8b8b;--out:#e9e4d3;--vip:#f2c14e;--tbl:#fff;--tblst:#55663f;--stage:#c96b4b;--svc:#8aa6c9;--wc:#b9a5d6;--food:#f0a97a;--exist:#c9c2b0;--warn:#b3541e}
-@media (prefers-color-scheme:dark){:root{--bg:#1d201b;--fg:#ecebe4;--card:#2a2e27;--line:#454a40;--grass:#3b4f30;--wild:#344628;--wood:#243420;--pond:#27506a;--road:#555;--out:#2f2e27;--tbl:#3a4034;--tblst:#9db08a;--exist:#5a574c;--warn:#f0a070}}
+:root{--bg:#f6f4ee;--fg:#222;--card:#fff;--line:#d8d3c4;--grass:#8db37a;--road:#9a9a9a;--out:#dcdcdc;--path:#eceae0;--pond:#8fc3da;--tbl:#fff;--tblst:#55663f;--tent:#f3c874;--tentst:#c98f20;--stage:#8a1f6a;--buf:#c27dc4;--mkt:#2f9a4a;--prep:#f2a97a;--svc:#fff;--warn:#b3541e;--lab:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#1d201b;--fg:#ecebe4;--card:#2a2e27;--line:#454a40;--grass:#47633b;--road:#606060;--out:#33352f;--path:#8c8b80;--pond:#27506a;--tbl:#3a4034;--tblst:#b8c9a4;--warn:#f0a070}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Noto Sans TC",sans-serif}
 main{max-width:1150px;margin:0 auto;padding:16px}
 h1{font-size:22px;margin:4px 0}
+.sub{font-size:13px;opacity:.75;margin:0 0 6px}
 .note{background:var(--card);border-left:4px solid var(--warn);padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13px}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
 .bar button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit;font-size:13px}
@@ -24,16 +25,17 @@ svg{width:100%;height:auto;display:block}
 table{border-collapse:collapse;width:100%;font-size:13px}
 td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-.t{cursor:pointer}.t:hover .top{stroke-width:2;stroke:var(--warn)}
+.t{cursor:pointer}.t:hover .top{stroke-width:3;stroke:var(--warn)}
 text{font-family:inherit;fill:var(--fg);pointer-events:none}
 </style>
 </head>
 <body>
 <main>
-<h1>西螺森活武樹園區 場地配置圖(115 年 YUN 晚餐券)</h1>
-<div class="note">⚠️ <b>依衛星圖描繪的示意規劃,非官方測繪圖。</b>園區位於雲24線西南側(約 1.5 公頃),比例依 Google 地圖比例尺換算(約 6 px = 1 m),誤差可能達數公尺。既有建物用途、草地承重與樹位、餐點站與廁所擺放位置都需<b>現場確認</b>;正式使用請以雲林縣環保局或西螺七崁武術文教基金會提供的竣工圖校正。</div>
+<h1>西螺森活武樹園區 場地配置圖</h1>
+<p class="sub">風沙退場・雲林好食宴(115 年 YUN 晚餐券)</p>
+<div class="note">⚠️ 本圖依<b>主辦方公布的場地圖</b>重新繪製(戶外用餐區 200 人、休閒用餐區 300 人,共 500 人)。原圖為示意圖、非等比例;本圖的位置與桌數是依原圖與衛星圖(約 6.7 px = 1 m)推算,實際桌位、帳篷尺寸與動線請以主辦單位現場圖為準。</div>
 <div class="bar" id="views"></div>
-<div class="wrap"><svg id="map" viewBox="100 150 1400 720" role="img" aria-label="場地配置圖"></svg></div>
+<div class="wrap"><svg id="map" viewBox="60 830 1790 940" role="img" aria-label="場地配置圖"></svg></div>
 <div class="grid">
   <div class="card"><h2>選取桌位</h2><div id="info">點選地圖上的圓桌查看資訊。</div></div>
   <div class="card"><h2>統計</h2><div id="stats"></div></div>
@@ -41,104 +43,106 @@ text{font-family:inherit;fill:var(--fg);pointer-events:none}
 <div class="card" style="margin-top:14px"><h2>分區說明與動線</h2><table id="zones"></table></div>
 </main>
 <script>
-const NS="http://www.w3.org/2000/svg",svg=document.getElementById("map"),S=6; // 6 px = 1 m
+const NS="http://www.w3.org/2000/svg",svg=document.getElementById("map");
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function el(tag,a={},txt,p=svg){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e}
-const poly=(pts,a)=>el("polygon",{points:pts.map(p=>p.join(",")).join(" "),...a});
-function label(x,y,t,fs=14,a={}){t.split("\n").forEach((l,i,arr)=>el("text",{x,y:y+(i-(arr.length-1)/2)*fs*1.15+fs*.35,"text-anchor":"middle","font-size":fs,...a},l))}
-function box(x,y,w,h,fill,t,fs=14,a={}){el("rect",{x,y,width:w,height:h,rx:4,fill,stroke:"#0007","stroke-width":1.2,...a});label(x+w/2,y+h/2,t,fs,a.tcolor?{style:"fill:"+a.tcolor}:{})}
+const pts=a=>a.map(p=>p.join(",")).join(" ");
+function label(x,y,t,fs=22,a={}){t.split("\n").forEach((l,i,arr)=>el("text",{x,y:y+(i-(arr.length-1)/2)*fs*1.15+fs*.35,"text-anchor":"middle","font-size":fs,...a},l))}
+const ANG=22.1; // 雲24 線斜率
 
 // ── 底圖 ──
-el("rect",{x:0,y:0,width:2000,height:1400,fill:css("--out")});
-// 雲24 線(園區東北側斜向道路)
-const edge=[[100,185],[450,310],[660,390],[850,475],[1060,570],[1180,615],[1410,690],[1500,720]];
-poly([...edge.map(([x,y])=>[x,y-100]),...edge.slice().reverse()],{fill:css("--road")});
-el("text",{x:700,y:332,"font-size":16,transform:"rotate(24 700 332)","text-anchor":"middle",style:"fill:#fff"},"雲24 線(南側為園區)");
-// 南側林帶
-poly([[140,560],[240,720],[400,810],[600,770],[860,810],[1060,835],[1420,800],[1500,830],[1500,900],[100,900],[100,640]],{fill:css("--wood")});
-label(500,860,"南側林帶(不使用)・大橋路在圖外更南方",14);
+el("rect",{x:0,y:0,width:2000,height:2000,fill:css("--out")});
+// 雲24 鄉道
+el("polygon",{points:pts([[115,855],[1815,1545],[1815,1613],[115,923]]),fill:css("--road")});
+label(300,905,"雲24 鄉道",30,{transform:`rotate(${ANG} 300 905)`,style:"fill:#fff"});
 // 園區草地
-poly([[140,200],[450,310],[660,390],[850,475],[1060,570],[1180,615],[1410,690],[1420,800],[1060,835],[860,810],[600,770],[400,810],[240,720],[140,560]],{fill:css("--wild")});
-poly([[330,400],[450,330],[660,390],[850,475],[1060,570],[1180,615],[1180,780],[1060,830],[860,805],[640,735],[500,770],[390,800],[240,700],[240,560]],{fill:css("--grass")});
-label(260,330,"西側草坡・疏植小樹\n(不規劃)",14);
-// 步道
-const path=pts=>el("polyline",{points:pts.map(p=>p.join(",")).join(" "),fill:"none",stroke:"#f3efe2","stroke-width":8,"stroke-linecap":"round","stroke-linejoin":"round",opacity:.9});
-path([[250,640],[240,580],[300,530],[410,400],[440,360],[520,352]]);
-path([[390,800],[540,745],[640,725],[800,745],[860,790],[1050,820]]);
-path([[1100,745],[1250,760],[1410,775]]);
-path([[1085,600],[1085,790]]);
-// 生態池(既有,依衛星圖描繪)
-el("path",{d:"M320 575 Q420 560 520 580 Q600 570 680 560 Q705 590 690 630 Q640 655 560 640 Q470 672 400 676 Q330 655 320 575Z",fill:css("--pond"),stroke:"#4a8fb0","stroke-width":2});
-label(500,615,"生態池(既有・禁入)",16);
-// 大樹
-el("circle",{cx:565,cy:672,r:40,fill:"#3f6a38",opacity:.85});label(565,672,"既有大樹\n(保留)",12,{style:"fill:#fff"});
-// 既有建物
-box(1060,592,90,72,css("--exist"),"既有建物\n(用途待確認)",12);
+el("polygon",{points:pts([[175,935],[1255,1372],[1735,1560],[1740,1685],[540,1685],[300,1620],[230,1500],[195,1250]]),fill:css("--grass")});
+// 環園步道
+el("polyline",{points:pts([[1255,1410],[1180,1380],[900,1262],[640,1175],[500,1215],[380,1290],[300,1400],[290,1500],[340,1600],[520,1658],[900,1672],[1290,1676]]),fill:"none",stroke:css("--path"),"stroke-width":34,"stroke-linecap":"round","stroke-linejoin":"round"});
+el("path",{d:"M1285 1480 V1675",stroke:css("--path"),"stroke-width":22,fill:"none"});
+// 生態池
+el("path",{d:"M415 1395 Q520 1370 620 1395 Q720 1375 825 1385 Q850 1430 800 1475 Q700 1470 620 1465 Q520 1500 440 1475 Q405 1440 415 1395Z",fill:css("--pond")});
+label(620,1428,"生態池(禁入)",22,{style:"fill:#245"});
+// 入口廣場
+el("circle",{cx:1320,cy:1440,r:70,fill:css("--path")});
+el("path",{d:"M1272 1442 A48 48 0 0 1 1376 1430",fill:"none",stroke:"#e07a1f","stroke-width":14,"stroke-linecap":"round"});
+el("circle",{cx:1320,cy:1468,r:16,fill:"#6b2a9a"});
+label(1415,1465,"入口",26,{style:"fill:#e07a1f"});
+label(1322,1512,"成果展示區",16,{style:"fill:#222"});
+// 貴賓報到、服務台
+el("rect",{x:1266,y:1435,width:26,height:26,fill:"#fff",stroke:"#555","stroke-width":2});
+label(1205,1436,"貴賓報到區",15,{style:"fill:#222"});
+el("rect",{x:1348,y:1470,width:26,height:26,fill:"#fff",stroke:"#555","stroke-width":2,transform:"rotate(20 1361 1483)"});
+label(1405,1510,"服務台",16,{style:"fill:#222"});
+// 市集區(沿道路)
+{const g=el("g",{});for(let i=0;i<24;i++){const x=1255+i*16,y=1328+i*6.5;el("rect",{x,y:y-12,width:15,height:24,fill:css("--mkt"),stroke:"#1d5a2c","stroke-width":1,transform:`rotate(${ANG} ${x} ${y})`},null,g)}}
+label(1560,1390,"市集區",26,{style:"fill:#2f9a4a",transform:"rotate(22 1560 1390)"});
+// 備餐區(東南)
+el("path",{d:"M1455 1560 H1690 V1675 H1640 V1610 H1455Z",fill:css("--path")});
+el("rect",{x:1468,y:1572,width:130,height:60,fill:css("--prep"),rx:4});
+label(1533,1602,"備餐區",24,{style:"fill:#333"});
+// BUFFET(北側沿道路 5 組、南側 3 組)
+const buf=(x,y,rot=0)=>{el("rect",{x:x-26,y:y-14,width:24,height:28,fill:css("--buf"),stroke:"#8a4f8c","stroke-width":1.5,transform:`rotate(${rot} ${x} ${y})`});el("rect",{x:x+2,y:y-14,width:24,height:28,fill:css("--buf"),stroke:"#8a4f8c","stroke-width":1.5,transform:`rotate(${rot} ${x} ${y})`})};
+[[665,1166],[785,1222],[918,1275],[1040,1330],[1162,1380]].forEach(([x,y])=>buf(x,y,ANG));
+[[660,1622],[770,1604],[862,1612]].forEach(([x,y])=>buf(x,y,0));
+label(735,1155,"BUFFET",22,{transform:`rotate(${ANG} 735 1155)`,style:"fill:#fff"});
+label(935,1250,"BUFFET",22,{transform:`rotate(${ANG} 935 1250)`,style:"fill:#fff"});
+label(1095,1315,"BUFFET",22,{transform:`rotate(${ANG} 1095 1315)`,style:"fill:#fff"});
+label(770,1650,"BUFFET",22,{style:"fill:#fff"});
+// 舞台、音控、醫護、表演團體
+el("rect",{x:970,y:1590,width:62,height:34,fill:css("--stage"),rx:3});
+label(1001,1607,"舞台",22,{style:"fill:#fff"});
+[["音控區",1050],["音控區",1070],["醫護站",1090],["表演\n團體區",1110],["表演\n團體區",1130]].forEach(([t,x],i)=>{
+  el("rect",{x:x-9,y:1628+i*3,width:18,height:30,fill:"#fff",stroke:"#555","stroke-width":1.5,transform:`rotate(${i*4-8} ${x} ${1643})`})});
+label(1090,1692,"音控・醫護站・表演團體",16);
 
-// 舞台(中央草地北緣,朝南)
-box(730,582,150,48,css("--stage"),"主舞台 25×8 m",15,{tcolor:"#fff"});
-box(890,586,50,38,"#d9b38c","音控\n燈光",12);
-box(730,636,40,16,"#d9b38c","直播",11);
-
-// 用餐桌:中央 4 排 × 9 欄、備用加桌區 2 排 × 8 欄;圓桌 Ø1.8 m,桌距 5 m
+// ── 餐桌 ──
 const tables=[];
-for(let r=0;r<4;r++)for(let c=0;c<9;c++)tables.push({id:`C${r*9+c+1}`,x:745+c*30,y:675+r*30,zone:"中央草地",vip:r===0&&c>=1&&c<=4,row:r+1});
-for(let r=0;r<2;r++)for(let c=0;c<8;c++)tables.push({id:`N${r*8+c+1}`,x:395+c*30,y:440+r*30,zone:"北側備用區",vip:false,row:r+1});
-tables.forEach(t=>{const g=el("g",{class:"t"});
-  for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:t.x+9*Math.cos(a),cy:t.y+9*Math.sin(a),r:2.4,fill:t.vip?"#b88a1c":css("--tblst")},null,g)}
-  el("circle",{class:"top",cx:t.x,cy:t.y,r:6.2,fill:t.vip?css("--vip"):css("--tbl"),stroke:css("--tblst"),"stroke-width":1},null,g);
-  el("text",{x:t.x,y:t.y+2.2,"text-anchor":"middle","font-size":5.5},t.id,g);
+// 戶外用餐區 200 人(20 桌)
+[[400,1150],[330,1225],[470,1275]].forEach(([x,y])=>tables.push({x,y,zone:"戶外用餐區",grp:"西北草地"}));
+for(let r=0;r<2;r++)for(let c=0;c<5;c++)tables.push({x:580+36*c,y:1298+r*40,zone:"戶外用餐區",grp:"池北"});
+[[400,1566],[460,1566],[520,1566],[580,1566],[640,1566],[705,1522],[785,1530]].forEach(([x,y])=>tables.push({x,y,zone:"戶外用餐區",grp:"池南"}));
+tables.forEach((t,i)=>{t.id="O"+(i+1)});
+// 休閒用餐區 300 人(8 頂星形帳篷,共 30 桌)
+const tents=[[945,1375],[1035,1428],[1105,1470],[1190,1490],[905,1478],[1010,1530],[1120,1555],[1212,1555]],tentCount=[4,4,4,4,4,4,3,3];
+const tentBase=[];
+tents.forEach(([cx,cy],k)=>{const p=[];for(let i=0;i<16;i++){const a=i/16*2*Math.PI,r=i%2?26:46;p.push([cx+r*Math.cos(a),cy+r*Math.sin(a)])}
+  el("polygon",{points:pts(p),fill:css("--tent"),stroke:css("--tentst"),"stroke-width":2});
+  const off=[[-14,-14],[14,-14],[-14,14],[14,14]];
+  for(let j=0;j<tentCount[k];j++)tables.push({x:cx+off[j][0],y:cy+off[j][1],zone:"休閒用餐區",grp:`帳篷 ${k+1}`,id:`T${k+1}-${j+1}`,tent:true})});
+tables.forEach(t=>{const g=el("g",{class:"t"});const cr=t.tent?3.2:3.6,dr=t.tent?9:11,tr=t.tent?6.5:8;
+  for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:t.x+dr*Math.cos(a),cy:t.y+dr*Math.sin(a),r:cr,fill:css("--tblst")},null,g)}
+  el("circle",{class:"top",cx:t.x,cy:t.y,r:tr,fill:css("--tbl"),stroke:css("--tblst"),"stroke-width":1.5},null,g);
   g.addEventListener("click",()=>show(t))});
-label(960,664,"桌距 5 m",10,{});
-label(500,420,"北側備用加桌區(約 16 桌)\n草坡與樹位待現場確認",12);
+label(540,1236,"戶外用餐區\n200 人",26,{style:"fill:#fff;font-weight:700"});
+label(1130,1632,"休閒用餐區 300 人",24,{style:"fill:#222;font-weight:700"});
 
-// 餐點站(中央草地東緣,單排)
-for(let i=0;i<5;i++)box(1010,600+i*32,30,30,css("--food"),String(i+1),13);
-label(1025,590,"餐點站",12);
-box(1010,764,30,16,"#e6c9a8","飲料",10);
-
-// 入口與後場(既有小停車場)
-box(1240,690,80,60,"#d8c36a","主入口\n驗票・領取\n晚餐券",13);
-box(1325,690,85,60,css("--svc"),"後場 / 餐車\n停放",13);
-box(1250,758,70,24,"#e8a0a0","醫護・服務台",11);
-// 廁所(擬設)
-box(1110,672,100,24,css("--wc"),"流動廁所 A(擬設)",11);
-box(1110,702,100,24,css("--wc"),"流動廁所 B(擬設)",11);
-box(250,650,70,22,css("--wc"),"無障礙廁所\n(擬設)",10);
-// 緊急出口
-[["緊急出口 N",925,528],["緊急出口 W",150,604]].forEach(([l,x,y])=>box(x,y,76,18,"#c33",l,11,{tcolor:"#fff"}));
-label(962,516,"(人行穿越道)",10);
-// 動線
-el("path",{d:"M1280 745 L1150 758 L1060 772 L985 782",fill:"none",stroke:"#d33","stroke-width":2.4,"stroke-dasharray":"7 5"});
-el("path",{d:"M1085 775 V700",fill:"none",stroke:"#d33","stroke-width":1.5,"stroke-dasharray":"5 4"});
-label(1150,790,"入場動線",12,{style:"fill:#d33"});
-// 比例尺與指北
-el("rect",{x:130,y:840,width:120,height:6,fill:"#222"});label(190,830,"20 m",13);
-el("path",{d:"M1440 190 L1452 235 L1440 225 L1428 235Z",fill:"#222"});label(1440,255,"N(約略)",12);
+// 比例尺(約 6.7 px = 1 m)與指北
+el("rect",{x:120,y:1730,width:134,height:7,fill:"#222"});label(187,1716,"約 20 m",18);
 
 // 資訊與統計
 const info=document.getElementById("info");
-function show(t){const d=Math.hypot(t.x-805,t.y-606)/S;info.innerHTML=`<b>${t.id} 桌</b>${t.vip?"(貴賓桌)":""}<br>座位:10 席<br>區域:${t.zone}・第 ${t.row} 排<br>距舞台約 ${d.toFixed(0)} m`}
-const nC=tables.filter(t=>t.id[0]==="C").length,nN=tables.length-nC,vipN=tables.filter(t=>t.vip).length;
+function show(t){info.innerHTML=`<b>${t.id} 桌</b><br>座位:10 席<br>區域:${t.zone}(${t.grp})`}
+const nO=tables.filter(t=>t.zone==="戶外用餐區").length,nT=tables.length-nO;
 document.getElementById("stats").innerHTML=`<table>
-<tr><td>中央草地</td><td>${nC} 桌 = ${nC*10} 席(基本容量)</td></tr>
-<tr><td>北側備用區</td><td>${nN} 桌 = ${nN*10} 席(視現場加開)</td></tr>
-<tr><td>最大容量</td><td><b>${tables.length*10}</b> 席(${tables.length} 桌)</td></tr>
-<tr><td>貴賓桌</td><td>${vipN} 桌(中央第 1 排)</td></tr>
-<tr><td>餐點站</td><td>5 站 + 飲料站</td></tr>
-<tr><td>廁所</td><td>圖上 3 處;400 人以上建議 ≥ 8 間,需另行租用補足</td></tr></table>
-<p style="font-size:12px;margin:8px 0 0">400 人以上時,中央草地 360 席不足,需啟用北側備用區。</p>`;
+<tr><td>戶外用餐區</td><td>${nO} 桌 = ${nO*10} 人</td></tr>
+<tr><td>休閒用餐區</td><td>${nT} 桌 = ${nT*10} 人(8 頂帳篷)</td></tr>
+<tr><td>合計</td><td><b>${tables.length*10}</b> 人(${tables.length} 桌)</td></tr>
+<tr><td>BUFFET</td><td>8 組(北側 5、南側 3)</td></tr>
+<tr><td>市集區</td><td>沿雲24 鄉道,約 24 攤</td></tr></table>
+<p style="font-size:12px;margin:8px 0 0">每桌 10 人為推算;原圖只標區域人數,未標桌數。</p>`;
 document.getElementById("zones").innerHTML=`<tr><th>區域</th><th>說明</th></tr>
-<tr><td><span class="sw" style="background:var(--stage)"></span>舞台</td><td>中央草地北緣、朝南,約 25×8 m,背景為斜向道路側,音控在東側</td></tr>
-<tr><td><span class="sw" style="background:var(--tbl);border:1px solid var(--tblst)"></span>用餐區</td><td>中央草地約 52×37 m 排 36 桌;西北草坡另備 16 桌</td></tr>
-<tr><td><span class="sw" style="background:var(--food)"></span>餐點區</td><td>草地東緣單排,靠近後場餐車,取餐與入場動線錯開</td></tr>
-<tr><td><span class="sw" style="background:#d8c36a"></span>入口</td><td>利用東側既有小停車場驗票,沿東側步道入場</td></tr>
-<tr><td><span class="sw" style="background:var(--pond)"></span>生態池</td><td>西側既有,列為禁入並建議設置護欄;大樹保留</td></tr>
-<tr><td><span class="sw" style="background:#c33"></span>緊急出口</td><td>北側人行穿越道、西側步道,另加東側主入口,共 3 處</td></tr>
-<tr><td>待確認</td><td>既有建物用途、草地承重與排水、雲24 線車輛管制與接駁、停車場容量</td></tr>`;
+<tr><td><span class="sw" style="background:#fff;border:1px solid var(--tblst)"></span>戶外用餐區</td><td>200 人。圓桌分佈在池北、池南與西北草地,環繞生態池</td></tr>
+<tr><td><span class="sw" style="background:var(--tent)"></span>休閒用餐區</td><td>300 人。8 頂星形帳篷,靠近入口與舞台</td></tr>
+<tr><td><span class="sw" style="background:var(--buf)"></span>BUFFET</td><td>取餐點分散在環園步道的北側(沿道路)與南側,縮短排隊距離</td></tr>
+<tr><td><span class="sw" style="background:var(--stage)"></span>舞台與後台</td><td>舞台在南側步道旁;音控、醫護站、表演團體區緊鄰舞台東側</td></tr>
+<tr><td><span class="sw" style="background:#e07a1f"></span>入口</td><td>東側圓形廣場。貴賓報到區、服務台、成果展示區都設在入口周邊</td></tr>
+<tr><td><span class="sw" style="background:var(--mkt)"></span>市集區</td><td>沿雲24 鄉道的東北側,與用餐區分開</td></tr>
+<tr><td><span class="sw" style="background:var(--prep)"></span>備餐區</td><td>東南角,餐點由此經南側步道送往各 BUFFET</td></tr>
+<tr><td><span class="sw" style="background:var(--pond)"></span>生態池</td><td>既有,禁入;建議設護欄</td></tr>`;
 
 // 視角切換
-const views={"全區":"100 150 1400 720","用餐區":"340 400 800 440","入口與後場":"1000 560 480 260"};
+const views={"全區":"60 830 1790 940","戶外用餐區":"200 1080 760 640","休閒用餐區與舞台":"820 1280 560 440","入口與市集":"1180 1280 660 440"};
 const bar=document.getElementById("views");
 Object.entries(views).forEach(([n,v],i)=>{const b=document.createElement("button");b.textContent=n;if(!i)b.className="on";
   b.onclick=()=>{svg.setAttribute("viewBox",v);[...bar.children].forEach(x=>x.className="");b.className="on"};bar.appendChild(b)});

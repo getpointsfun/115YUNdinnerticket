@@ -41,6 +41,9 @@ text{font-family:inherit;fill:var(--fg);pointer-events:none}
   <div class="card"><h2>選取桌位</h2><div id="info">點選地圖上的圓桌查看資訊。</div></div>
   <div class="card"><h2>統計</h2><div id="stats"></div></div>
 </div>
+<div class="card" style="margin-top:14px"><h2>休閒用餐區容量評估</h2><table id="capTbl"></table><p id="capNote" style="font-size:13px;margin:8px 0 0"></p></div>
+<div class="card" style="margin-top:14px"><h2>邀請人數與容量(邀請卡 270 張・可攜伴)</h2><table id="demTbl"></table><p id="demNote" style="font-size:13px;margin:8px 0 0"></p>
+<h3 style="font-size:14px;margin:14px 0 6px">邀請名單分類(僅統計人數,不含個資)</h3><table id="listTbl"></table><p id="listNote" style="font-size:13px;margin:8px 0 0"></p></div>
 <div class="card" style="margin-top:14px"><h2>貴賓回函</h2>
 <p style="margin:0 0 8px;font-size:13px" id="vipText"></p>
 <p style="margin:0 0 8px"><a id="vipLink" class="btn" target="_blank" rel="noopener"></a></p>
@@ -109,21 +112,35 @@ const tables=[];
 for(let r=0;r<2;r++)for(let c=0;c<5;c++)tables.push({x:580+36*c,y:1298+r*40,zone:"戶外用餐區",grp:"池北"});
 [[400,1566],[460,1566],[520,1566],[580,1566],[640,1566],[705,1522],[785,1530]].forEach(([x,y])=>tables.push({x,y,zone:"戶外用餐區",grp:"池南"}));
 tables.forEach((t,i)=>{t.id="O"+(i+1)});
-// 休閒用餐區 300 人:主辦圖共 7 頂星形帳篷(1、4、6 斜放,2、3、5、7 直放),共 30 桌
-// 中心點由主辦圖量測;th = 帳篷長軸角度;n = 桌數;VIP 為建議的貴賓帳篷(離舞台最近)
-const tents=[{x:950,y:1380,th:22,n:5},{x:1030,y:1435,th:90,n:4},{x:1100,y:1467,th:90,n:4},{x:1193,y:1487,th:22,n:5},
-             {x:917,y:1482,th:90,n:4},{x:1028,y:1537,th:22,n:4,vip:true},{x:1140,y:1552,th:90,n:4}];
-tents.forEach((T,k)=>{const rad=T.th*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad),p=[];
-  for(let i=0;i<12;i++){const a=rad+i*Math.PI/6,rr=i%2?24:(i%6===0?54:42);p.push([T.x+rr*Math.cos(a),T.y+rr*Math.sin(a)])}
-  el("polygon",{points:pts(p),fill:css("--tent"),stroke:T.vip?"#b8860b":css("--tentst"),"stroke-width":T.vip?4:2});
-  const off=T.n===5?[[-24,-14],[24,-14],[-24,14],[24,14],[0,0]]:[[-14,-15],[14,-15],[-14,15],[14,15]];
-  off.forEach(([u,v],j)=>tables.push({x:T.x+u*c-v*sn,y:T.y+u*sn+v*c,zone:"休閒用餐區",grp:`帳篷 ${k+1}${T.vip?"(建議貴賓帳篷)":""}`,id:`T${k+1}-${j+1}`,tent:true,vip:!!T.vip}))});
+// 休閒用餐區:7 頂帳篷,依商家規格圖以實際尺寸繪製(1 m = 6.7 px)
+//  雙峰天幕 15×8.3×4 m(可容納 30–40 人)× 3 = 主辦圖中斜放的 1、4、6 號
+//  單峰天幕大號 10×10×4 m(可容納 12–20 人)× 4 = 主辦圖中直放的 2、3、5、7 號
+const SC=6.7;
+const DBL=[[-7.5,0],[-4.8,-4.15],[0,-4.15],[4.8,-4.15],[7.5,0],[4.8,4.15],[0,4.15],[-4.8,4.15]];
+const SGL=[0,1,2,3,4,5].map(k=>{const a=(-90+60*k)*Math.PI/180;return[5*Math.cos(a),5*Math.sin(a)]});
+function shape(tips,ctl){let d=`M${tips[0][0]} ${tips[0][1]}`,poly=[];
+  tips.forEach((p,i)=>{const q=tips[(i+1)%tips.length],c=ctl(p,q);d+=` Q${c[0]} ${c[1]} ${q[0]} ${q[1]}`;
+    for(let t=0;t<20;t++){const u=t/20;poly.push([(1-u)*(1-u)*p[0]+2*u*(1-u)*c[0]+u*u*q[0],(1-u)*(1-u)*p[1]+2*u*(1-u)*c[1]+u*u*q[1]])}});
+  let A=0;poly.forEach((p,i)=>{const q=poly[(i+1)%poly.length];A+=p[0]*q[1]-q[0]*p[1]});return{d:d+"Z",area:Math.abs(A)/2}}
+const SHAPE={D:shape(DBL,(p,q)=>[(p[0]+q[0])/2*.12,(p[1]+q[1])/2*.12]),
+  S:shape(SGL,(p,q)=>{const m=[(p[0]+q[0])/2,(p[1]+q[1])/2],r=Math.hypot(m[0],m[1]);return[m[0]/r*1.27,m[1]/r*1.27]})};
+const TENT={D:{name:"雙峰 15×8.3 m",cap:[30,40],plan:[[-1.95,-1.95],[1.95,-1.95],[-1.95,1.95],[1.95,1.95]]},
+            S:{name:"單峰 10×10 m",cap:[12,20],plan:[[0,-1.95],[0,1.95]]}};
+const tents=[{x:950,y:1380,th:22,t:"D"},{x:1030,y:1435,th:0,t:"S"},{x:1100,y:1467,th:0,t:"S"},{x:1193,y:1487,th:22,t:"D"},
+             {x:917,y:1482,th:0,t:"S"},{x:1028,y:1537,th:22,t:"D",vip:true},{x:1140,y:1552,th:0,t:"S"}];
+tents.forEach((T,k)=>{const rad=T.th*Math.PI/180,c=Math.cos(rad),sn=Math.sin(rad);
+  el("path",{d:SHAPE[T.t].d,transform:`translate(${T.x} ${T.y}) rotate(${T.th}) scale(${SC})`,fill:css("--tent"),stroke:T.vip?"#b8860b":css("--tentst"),"stroke-width":T.vip?4:2,"vector-effect":"non-scaling-stroke","stroke-linejoin":"round"});
+  TENT[T.t].plan.forEach(([u,v],j)=>{u*=SC;v*=SC;tables.push({x:T.x+u*c-v*sn,y:T.y+u*sn+v*c,zone:"休閒用餐區",grp:`帳篷 ${k+1}・${TENT[T.t].name}${T.vip?"(建議貴賓帳篷)":""}`,id:`T${k+1}-${j+1}`,tent:true,vip:!!T.vip})});
+  label(T.x,T.y+(T.t==="D"?-0:0),String(k+1),13,{style:"fill:#7a5a10;font-weight:700",opacity:.0})});
+// 帳外加桌(露天):為了湊足人為評估的 300 人,在帳篷之間與東側草地加 10 桌
+[[1075,1412],[1115,1412],[1155,1412],[1195,1412],[1215,1552],[1250,1552],[1215,1588],[1250,1588],[1215,1624],[1250,1624]]
+  .forEach(([x,y],i)=>tables.push({x,y,zone:"休閒用餐區",grp:"帳外加桌(露天,遇雨需備案)",id:`X${i+1}`,tent:true,open:true}));
 tables.forEach(t=>{const g=el("g",{class:"t"});const cr=t.tent?3.2:3.6,dr=t.tent?9:11,tr=t.tent?6.5:8;
   for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:t.x+dr*Math.cos(a),cy:t.y+dr*Math.sin(a),r:cr,fill:css("--tblst")},null,g)}
-  el("circle",{class:"top",cx:t.x,cy:t.y,r:tr,fill:t.vip?"#f2c14e":css("--tbl"),stroke:css("--tblst"),"stroke-width":1.5},null,g);
+  el("circle",{class:"top",cx:t.x,cy:t.y,r:tr,fill:t.vip?"#f2c14e":css("--tbl"),stroke:css("--tblst"),"stroke-width":1.5,"stroke-dasharray":t.open?"3 2":"none"},null,g);
   g.addEventListener("click",()=>show(t))});
 label(540,1236,"戶外用餐區\n200 人",26,{style:"fill:#fff;font-weight:700"});
-label(1215,1632,"休閒用餐區 300 人\n(7 頂帳篷)",19,{style:"fill:#222;font-weight:700"});
+label(885,1318,"休閒用餐區\n300 人",24,{style:"fill:#fff;font-weight:700"});
 
 // 比例尺(約 6.7 px = 1 m)與指北
 el("rect",{x:120,y:1730,width:134,height:7,fill:"#222"});label(187,1716,"約 20 m",18);
@@ -131,10 +148,10 @@ el("rect",{x:120,y:1730,width:134,height:7,fill:"#222"});label(187,1716,"約 20 
 // 資訊與統計
 const info=document.getElementById("info");
 function show(t){info.innerHTML=`<b>${t.id} 桌</b>${t.vip?"(貴賓桌・建議)":""}<br>座位:10 席<br>區域:${t.zone}(${t.grp})${t.vip&&VIP_FORM_URL?`<br><a href="${VIP_FORM_URL}" target="_blank" rel="noopener">貴賓回函表單</a>`:""}`}
-const nO=tables.filter(t=>t.zone==="戶外用餐區").length,nT=tables.length-nO;
+const nO=tables.filter(t=>t.zone==="戶外用餐區").length,nT=tables.length-nO,nOut=tables.filter(t=>t.open).length,nIn=nT-nOut;
 document.getElementById("stats").innerHTML=`<table>
 <tr><td>戶外用餐區</td><td>${nO} 桌 = ${nO*10} 人</td></tr>
-<tr><td>休閒用餐區</td><td>${nT} 桌 = ${nT*10} 人(7 頂帳篷,每頂約 ${Math.round(nT*10/7)} 人)</td></tr>
+<tr><td>休閒用餐區</td><td>${nT} 桌 = ${nT*10} 人(帳篷內 ${nIn*10} + 帳外露天 ${nOut*10})</td></tr>
 <tr><td>合計</td><td><b>${tables.length*10}</b> 人(${tables.length} 桌)</td></tr>
 <tr><td>BUFFET</td><td>8 組(北側 5、南側 3)</td></tr>
 <tr><td>舞台</td><td>8.1×7.2 m(約 58 m²)</td></tr>
@@ -142,7 +159,7 @@ document.getElementById("stats").innerHTML=`<table>
 <p style="font-size:12px;margin:8px 0 0">每桌 10 人為推算;原圖只標區域人數,未標桌數。</p>`;
 document.getElementById("zones").innerHTML=`<tr><th>區域</th><th>說明</th></tr>
 <tr><td><span class="sw" style="background:#fff;border:1px solid var(--tblst)"></span>戶外用餐區</td><td>200 人。圓桌分佈在池北、池南與西北草地,環繞生態池</td></tr>
-<tr><td><span class="sw" style="background:var(--tent)"></span>休閒用餐區</td><td>300 人。依主辦圖共 7 頂星形帳篷(4 頂直放、3 頂斜放),靠近入口與舞台</td></tr>
+<tr><td><span class="sw" style="background:var(--tent)"></span>休閒用餐區</td><td>300 人。7 頂帳篷(雙峰 15×8.3 m × 3、單峰 10×10 m × 4)可坐 200 人,另在帳外露天加 10 桌補到 300 人</td></tr>
 <tr><td><span class="sw" style="background:var(--buf)"></span>BUFFET</td><td>取餐點分散在環園步道的北側(沿道路)與南側,縮短排隊距離</td></tr>
 <tr><td><span class="sw" style="background:var(--stage)"></span>舞台與後台</td><td>舞台約 8.1×7.2 m,在南側步道旁;音控、醫護站、表演團體區緊鄰舞台東側</td></tr>
 <tr><td><span class="sw" style="background:#e07a1f"></span>入口</td><td>東側圓形廣場。貴賓報到區、服務台、成果展示區都設在入口周邊</td></tr>
@@ -150,10 +167,34 @@ document.getElementById("zones").innerHTML=`<tr><th>區域</th><th>說明</th></
 <tr><td><span class="sw" style="background:var(--prep)"></span>備餐區</td><td>東南角,餐點由此經南側步道送往各 BUFFET</td></tr>
 <tr><td><span class="sw" style="background:var(--pond)"></span>生態池</td><td>既有,禁入;建議設護欄</td></tr>`;
 
+// 邀請人數 vs 容量
+const INVITES=270; // 邀請卡張數;每位受邀者可攜伴 1 人
+{const cap=tables.length*10,inT=tables.filter(t=>t.tent&&!t.open).length*10;
+ const rows=[["全員出席・無人攜伴",INVITES],["一半攜伴",Math.round(INVITES*1.5)],["全員出席・全部攜伴",INVITES*2]];
+ document.getElementById("demTbl").innerHTML=`<tr><th>情境</th><th>人數</th><th>需桌數</th><th>對照規劃容量 ${cap} 人</th></tr>`+rows.map(([n,v])=>`<tr><td>${n}</td><td><b>${v}</b></td><td>${Math.ceil(v/10)}</td><td>${v<=cap?`餘 ${cap-v} 人`:`<b style="color:var(--warn)">不足 ${v-cap} 人(約 ${Math.ceil((v-cap)/10)} 桌)</b>`}</td></tr>`).join("");
+ document.getElementById("demNote").innerHTML=`<b>重點:</b>(1) 全部攜伴最多 <b>${INVITES*2}</b> 人,超過規劃的 ${cap} 人,還沒算工作人員、表演團體與市集人員。(2) 就算沒人攜伴,${INVITES} 人也<b>多於帳篷內可坐的 ${inT} 人</b>(商家下限更只有 138),所以<b>遇雨一定要有備案</b>。(3) 回函表單需收「是否出席」與「攜伴人數」,截止後才能決定加桌或調整。`}
+// 邀請名單分類人數(來源:主辦提供的名單「人數統計」,此處只放人數,不放姓名電話住址)
+const LIST=[["中央部會",30,"高"],["區域立委",2,"高"],["不分區立委",3,"高"],["議長",1,"高"],["濁水溪沿岸議員代表",23,"高"],["濁水溪六鄉鎮鎮長",6,"高"],
+            ["民意代表(鄉鎮市)",66,"地方"],["里長",27,"地方"],["村長",69,"地方"]];
+{const tot=LIST.reduce((a,x)=>a+x[1],0),hi=LIST.filter(x=>x[2]==="高").reduce((a,x)=>a+x[1],0),lo=tot-hi,cap=tables.length*10;
+ document.getElementById("listTbl").innerHTML=`<tr><th>類別</th><th>人數</th><th>含攜伴上限</th><th>需桌數(上限)</th></tr>`+LIST.map(([n,v])=>`<tr><td>${n}</td><td>${v}</td><td>${v*2}</td><td>${Math.ceil(v*2/10)}</td></tr>`).join("")
+  +`<tr><td><b>名單合計</b></td><td><b>${tot}</b></td><td><b>${tot*2}</b></td><td><b>${Math.ceil(tot*2/10)}</b></td></tr>`
+  +`<tr><td>邀請卡 ${INVITES} 張 − 名單 ${tot}</td><td colspan="3"><b>${INVITES-tot}</b> 張不在這份名單內(用途待確認:媒體、單位代表或其他?)</td></tr>`;
+ document.getElementById("listNote").innerHTML=`<b>座位分配建議(待主辦確認):</b>「高層級」類別共 <b>${hi}</b> 人(中央部會、立委、議長、議員、鎮長),含攜伴最多 ${hi*2} 人 = ${Math.ceil(hi*2/10)} 桌,超過目前暫定的貴賓帳篷(4 桌)。可考慮把 3 頂雙峰帳篷(共 12 桌)全留給高層級貴賓,單峰與戶外用餐區安排地方類別(${lo} 人,含攜伴最多 ${lo*2} 人)。`}
+// 容量評估
+{const nD=tents.filter(t=>t.t==="D").length,nS=tents.length-nD,aD=SHAPE.D.area,aS=SHAPE.S.area,aTent=nD*aD+nS*aS;
+ const lo=nD*30+nS*12,hi=nD*40+nS*20,plan=tables.filter(t=>t.tent&&!t.open).length*10;
+ document.getElementById("capTbl").innerHTML=`<tr><th>項目</th><th>數量</th><th>面積</th><th>每頂可容納</th><th>小計</th></tr>
+ <tr><td>雙峰 15×8.3×4 m</td><td>${nD} 頂</td><td>約 ${aD.toFixed(0)} m²</td><td>30–40 人</td><td>${nD*30}–${nD*40}</td></tr>
+ <tr><td>單峰大號 10×10×4 m</td><td>${nS} 頂</td><td>約 ${aS.toFixed(0)} m²</td><td>12–20 人</td><td>${nS*12}–${nS*20}</td></tr>
+ <tr><td><b>商家規格評估</b></td><td>${tents.length} 頂</td><td>約 ${aTent.toFixed(0)} m²</td><td></td><td><b>${lo}–${hi}</b></td></tr>
+ <tr><td><b>本圖規劃:帳篷內</b></td><td>${plan/10} 桌</td><td>每人約 ${(aTent/plan).toFixed(1)} m²</td><td>雙峰 4 桌、單峰 2 桌</td><td><b>${plan}</b></td></tr>
+ <tr><td><b>人為評估</b></td><td>需帳外加 ${nOut} 桌</td><td></td><td></td><td><b>${plan+nOut*10}</b></td></tr>`;
+ document.getElementById("capNote").innerHTML=`<b>結論:</b>帳篷內商家規格是 <b>${lo}–${hi}</b> 人;要達到人為評估的 <b>300</b> 人,必須另外在帳外露天加 ${nOut} 桌(+${nOut*10} 人)。<br><b>要注意:</b>依規格圖的輪廓,雙峰放 4 桌、單峰放 2 桌時,椅子會超出帳篷邊緣,所以 ${hi} 人是擠著坐的上限,保守請以 ${lo} 人上下估算。帳外露天桌遇雨沒有遮蔽,需備案(加搭帳篷,或改移到室內/他處)。面積為依規格圖輪廓估算,未扣除柱位。`}
 // 貴賓回函
 const vipT=tables.filter(t=>t.vip);
 const lk=document.getElementById("vipLink");
-document.getElementById("vipText").textContent=VIP_FORM_URL?"貴賓請先填寫回函,主辦單位依回函結果安排桌位。":"貴賓回函 Google 表單尚未建立;建立後把網址填入程式碼最上方的 VIP_FORM_URL,這裡就會出現連結。";
+document.getElementById("vipText").innerHTML=(VIP_FORM_URL?"貴賓請先填寫回函,主辦單位依回函結果安排桌位。":"貴賓回函 Google 表單尚未建立;建立後把網址填入程式碼最上方的 VIP_FORM_URL,這裡就會出現連結。")+"<br>建議表單欄位:姓名/單位、是否出席、<b>攜伴人數(0 或 1)</b>、飲食禁忌(葷素)、聯絡電話。下方是暫定的貴賓帳篷(帳篷 6,離舞台最近,40 席);邀請卡共 270 張,貴賓與一般來賓怎麼分,請主辦單位確認。";
 if(VIP_FORM_URL){lk.href=VIP_FORM_URL;lk.textContent="填寫貴賓回函"}else{lk.className="btn off";lk.textContent="回函連結尚未設定"}
 document.getElementById("vipTbl").innerHTML="<tr><th>桌號</th><th>貴賓 / 單位</th><th>人數</th><th>備註</th></tr>"+vipT.map(t=>`<tr><td>${t.id}</td><td>(回函後填入)</td><td>— / 10</td><td></td></tr>`).join("");
 

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西螺森活武樹園區 場地配置圖</title>
+<style>
+:root{--bg:#f6f4ee;--fg:#222;--card:#fff;--line:#d8d3c4;--grass:#e4efd6;--pond:#bfe0ee;--vip:#f2c14e;--tbl:#fff;--tblst:#6b7a5a;--stage:#c96b4b;--svc:#8aa6c9;--wc:#b9a5d6;--food:#f0a97a;--warn:#b3541e}
+@media (prefers-color-scheme:dark){:root{--bg:#1d201b;--fg:#ecebe4;--card:#2a2e27;--line:#454a40;--grass:#2f3d29;--pond:#27506a;--tbl:#3a4034;--tblst:#9db08a;--warn:#f0a070}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Noto Sans TC",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0}
+.note{background:var(--card);border-left:4px solid var(--warn);padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13px}
+.wrap{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
+svg{width:100%;height:auto;display:block}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-top:12px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card h2{font-size:15px;margin:0 0 8px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.t{cursor:pointer}.t:hover circle.top{stroke-width:.5;stroke:var(--warn)}
+text{font-family:inherit;fill:var(--fg);pointer-events:none}
+</style>
+</head>
+<body>
+<main>
+<h1>西螺森活武樹園區 場地配置圖(115 年 YUN 晚餐券)</h1>
+<div class="note">⚠️ <b>示意規劃,非官方測繪圖。</b>已查得:園區約 1.5 公頃、位於西螺大橋西側(大橋路 151-1 號),中央有生態池與環園步道。其餘各區位置與尺寸為依 400 人以上流水席所做的假設(1 格 = 1 公尺,畫布 150×100 m),請以現場丈量或向雲林縣環保局/西螺七崁武術文教基金會索取的竣工圖校正。</div>
+<div class="wrap"><svg id="map" viewBox="0 0 150 100" role="img" aria-label="場地配置圖"></svg></div>
+<div class="grid">
+  <div class="card"><h2>選取桌位</h2><div id="info">點選地圖上的圓桌查看資訊。</div></div>
+  <div class="card"><h2>統計</h2><div id="stats"></div></div>
+</div>
+<div class="card" style="margin-top:14px"><h2>分區說明與動線</h2>
+<table id="zones"></table></div>
+</main>
+<script>
+const NS="http://www.w3.org/2000/svg",svg=document.getElementById("map");
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n);
+function el(tag,a={},txt){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e}
+function box(x,y,w,h,fill,label,fs=2.4,extra={}){el("rect",{x,y,width:w,height:h,rx:.8,fill,stroke:"#0006","stroke-width":.25,...extra});
+  label.split("\n").forEach((l,i,a)=>el("text",{x:x+w/2,y:y+h/2+(i-(a.length-1)/2)*fs*1.15+fs*.35,"text-anchor":"middle","font-size":fs},l))}
+
+// 場地底圖
+el("rect",{x:0,y:0,width:150,height:100,fill:css("--grass")});
+el("rect",{x:3,y:3,width:144,height:80,rx:3,fill:"none",stroke:"#7a8c66","stroke-width":.4,"stroke-dasharray":"1.5 1"});
+el("text",{x:75,y:6.5,"text-anchor":"middle","font-size":2.2},"北 ↑ (環園步道 / 園區範圍,約 1.5 公頃)");
+// 道路
+el("rect",{x:0,y:90,width:150,height:10,fill:"#888"});
+el("text",{x:75,y:96,"text-anchor":"middle","font-size":2.6,fill:"#fff"},"大橋路(西螺大橋西側)");
+svg.lastChild.setAttribute("style","fill:#fff");
+// 生態池(既有)
+el("ellipse",{cx:128,cy:52,rx:17,ry:13,fill:css("--pond"),stroke:"#4a8fb0","stroke-width":.3});
+el("text",{x:128,y:52.8,"text-anchor":"middle","font-size":2.6},"生態池(既有・禁入)");
+
+// 舞台與前場
+box(40,9,32,11,css("--stage"),"主舞台 / LED\n32×11 m",2.6);
+box(30,9,8,11,"#d9b38c","音控\n燈光",2);
+box(74,9,8,11,"#d9b38c","攝影\n直播",2);
+// 後場
+box(8,9,20,13,css("--svc"),"後場廚務 / 備餐\n(冷藏車・發電機)",2);
+box(86,9,16,13,css("--svc"),"工作人員\n休息/物資",2);
+
+// 餐桌:3 區 × 16 桌,圓桌 Ø1.8m,中心距 5m
+const blocks=[{n:"A",x0:22},{n:"B",x0:48},{n:"C",x0:74}],Y0=33,P=5,tables=[];
+blocks.forEach(b=>{for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+  const vip=b.n==="B"&&r===0;
+  tables.push({id:`${b.n}${r*4+c+1}`,x:b.x0+c*P+2.5,y:Y0+r*P+2.5,seats:10,vip,zone:b.n,row:r+1})}});
+tables.forEach(t=>{const g=el("g",{class:"t"});svg.removeChild(g);svg.appendChild(g);
+  const add=(tag,a,txt)=>{const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;g.appendChild(e)};
+  for(let i=0;i<10;i++){const a=i/10*2*Math.PI;add("circle",{cx:t.x+1.45*Math.cos(a),cy:t.y+1.45*Math.sin(a),r:.38,fill:t.vip?"#b88a1c":css("--tblst")})}
+  add("circle",{class:"top",cx:t.x,cy:t.y,r:1.05,fill:t.vip?css("--vip"):css("--tbl"),stroke:css("--tblst"),"stroke-width":.25});
+  add("text",{x:t.x,y:t.y+.55,"text-anchor":"middle","font-size":1.3},t.id);
+  g.addEventListener("click",()=>show(t))});
+el("text",{x:57,y:57.5,"text-anchor":"middle","font-size":2},"走道 6 m・桌距 5 m");
+
+// 餐點區(南側)
+for(let i=0;i<6;i++)box(22+i*11.5,62,10,6,css("--food"),`餐點站 ${i+1}`,1.9);
+box(22,70,68,4,"#e6c9a8","排隊緩衝帶(單向,面向餐點站)",1.9);
+box(22,76,32,5,css("--svc"),"飲料 / 湯品 / 甜點",2);
+// 入口與服務
+box(6,80,22,8,"#d8c36a","主入口\n驗票・領取晚餐券",2.2);
+box(30,83,16,5,"#e8a0a0","醫護站\nAED",1.9);
+box(48,83,18,5,css("--svc"),"服務台\n失物/客服",1.9);
+box(68,76,18,10,css("--svc"),"回收 / 廚餘\n(分類站)",2);
+// 廁所
+box(4,34,12,5,css("--wc"),"流動廁所 A",1.9);box(4,41,12,5,css("--wc"),"流動廁所 B",1.9);
+box(4,48,12,5,css("--wc"),"無障礙廁所",1.9);
+box(96,30,14,6,css("--wc"),"流動廁所 C",1.9);
+// 出口
+[["緊急出口 N",74,3],["緊急出口 E",142,28],["緊急出口 W",6,62]].forEach(([l,x,y])=>{box(x-5,y-1.5,10,3,"#c33",l,1.6);svg.lastChild.setAttribute("style","fill:#fff")});
+// 車輛
+box(100,76,40,11,"#bbb","接駁/臨停上下客區\n(停車:園區外)",2);
+// 動線
+el("path",{d:"M17 80 V58 H20 M44 58 V54 M70 58 V54 M96 58 V54",fill:"none",stroke:"#d33","stroke-width":.35,"stroke-dasharray":"1 .7"});
+el("text",{x:19,y:61,"font-size":1.8,style:"fill:#d33"},"入場動線");
+
+// 資訊
+const info=document.getElementById("info");
+function show(t){info.innerHTML=`<b>${t.id} 桌</b>${t.vip?"(貴賓桌)":""}<br>座位:${t.seats} 席<br>區域:${t.zone} 區・第 ${t.row} 排<br>距舞台約 ${(t.y-20).toFixed(0)} m`}
+const vipN=tables.filter(t=>t.vip).length;
+document.getElementById("stats").innerHTML=
+ `<table><tr><td>餐桌數</td><td>${tables.length} 桌</td></tr><tr><td>總座位</td><td><b>${tables.length*10}</b> 席</td></tr><tr><td>貴賓桌</td><td>${vipN} 桌</td></tr>
+ <tr><td>餐點站</td><td>6 站(每站約 ${Math.round(tables.length*10/6)} 人)</td></tr>
+ <tr><td>流動廁所</td><td>含無障礙共 7 間(建議 ≥ 1 間/50 人,依實際租用補足)</td></tr></table>`;
+document.getElementById("zones").innerHTML=
+`<tr><th>區域</th><th>假設尺寸</th><th>說明</th></tr>
+<tr><td><span class="sw" style="background:var(--stage)"></span>舞台</td><td>32×11 m</td><td>位於北側,觀眾面北;兩側為音控與直播</td></tr>
+<tr><td><span class="sw" style="background:var(--tbl);border:1px solid var(--tblst)"></span>用餐區</td><td>約 72×20 m</td><td>3 區各 16 桌圓桌,貴賓桌在 B 區第 1 排</td></tr>
+<tr><td><span class="sw" style="background:var(--food)"></span>餐點區</td><td>6 站</td><td>南側集中、單向排隊,避免與入場動線交叉</td></tr>
+<tr><td><span class="sw" style="background:var(--svc)"></span>後場/服務</td><td>—</td><td>廚務在西北,送餐走園區西側不穿越觀眾</td></tr>
+<tr><td><span class="sw" style="background:var(--pond)"></span>生態池</td><td>約 34×26 m</td><td>既有設施,列為禁入並建議設置護欄</td></tr>
+<tr><td><span class="sw" style="background:#c33"></span>緊急出口</td><td>3 處</td><td>北、東、西,各保持 ≥ 3.5 m 淨寬</td></tr>`;
+</script>
+</body>
+</html>

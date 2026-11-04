@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --ok:#15803d; --okbg:#dcfce7; --warn:#a16207; --warnbg:#fef9c3; --bad:#b91c1c; --badbg:#fee2e2;
+          --ink:#111827; --mute:#6b7280; --line:#d1d5db; --bg:#f3f4f6; --pri:#1d4ed8; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif; background:var(--bg); color:var(--ink); font-size:18px; }
+  .hidden { display:none !important; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:10px 12px; position:sticky; top:0; z-index:5; }
+  .desks { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .desks b { font-size:15px; color:var(--mute); }
+  .desk { border:2px solid var(--line); background:#fff; border-radius:10px; padding:8px 14px; font-size:18px; font-weight:700; }
+  .desk.on { background:var(--pri); border-color:var(--pri); color:#fff; }
+  .stats { margin-top:8px; font-size:16px; color:var(--mute); display:flex; gap:14px; flex-wrap:wrap; }
+  .stats b { color:var(--ink); }
+  main { padding:12px; max-width:760px; margin:0 auto; }
+  .bar { display:flex; gap:8px; }
+  .bar input { flex:1; min-width:0; font-size:22px; padding:14px; border:2px solid var(--line); border-radius:12px; }
+  button { font-family:inherit; cursor:pointer; }
+  .btn { border:0; border-radius:12px; padding:14px 18px; font-size:20px; font-weight:700; background:var(--pri); color:#fff; }
+  .btn.sec { background:#fff; color:var(--ink); border:2px solid var(--line); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .card { background:#fff; border-radius:14px; padding:14px; margin-top:12px; border:1px solid var(--line); }
+  .banner { margin-top:12px; border-radius:14px; padding:16px; font-size:22px; font-weight:800; }
+  .banner.ok { background:var(--okbg); color:var(--ok); }
+  .banner.warn { background:var(--warnbg); color:var(--warn); }
+  .banner.bad { background:var(--badbg); color:var(--bad); }
+  .banner small { display:block; font-weight:500; font-size:16px; margin-top:4px; }
+  .who { font-size:26px; font-weight:800; }
+  .org { color:var(--mute); font-size:17px; margin-top:2px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .chip { background:#eef2ff; color:#3730a3; border-radius:999px; padding:6px 14px; font-weight:700; font-size:18px; }
+  .chip.gift { background:#fff7ed; color:#9a3412; }
+  .t { display:flex; gap:12px; align-items:center; padding:12px 4px; border-top:1px solid var(--line); }
+  .t input[type=checkbox] { width:30px; height:30px; flex:none; }
+  .t .info { flex:1; min-width:0; }
+  .t .nm { font-weight:700; }
+  .t .st { font-size:15px; margin-top:2px; }
+  .st.done { color:var(--ok); } .st.part { color:var(--warn); } .st.none { color:var(--mute); }
+  .diet { font-size:14px; background:#f3f4f6; border-radius:6px; padding:1px 7px; margin-left:6px; font-weight:500; }
+  .undo { border:1px solid var(--line); background:#fff; border-radius:8px; padding:6px 10px; font-size:14px; color:var(--mute); }
+  .actions { display:grid; gap:10px; margin-top:14px; }
+  .actions .btn.main { font-size:24px; padding:18px; background:var(--ok); }
+  .list .row { display:flex; justify-content:space-between; align-items:center; padding:14px 6px; border-top:1px solid var(--line); cursor:pointer; }
+  .list .row:first-child { border-top:0; }
+  #reader { margin-top:10px; border-radius:12px; overflow:hidden; }
+  table { width:100%; border-collapse:collapse; font-size:16px; } td,th { padding:6px 4px; border-top:1px solid var(--line); text-align:left; }
+  .link { background:none; border:0; color:var(--pri); font-size:16px; padding:8px 0; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#111827; color:#fff; padding:12px 18px; border-radius:10px; font-size:17px; z-index:20; max-width:90vw; }
+</style>
+</head>
+<body>
+
+<div id="login" class="hidden"><main>
+  <div class="card">
+    <div class="who">工作人員登入</div>
+    <div class="org" id="loginMsg">請輸入工作人員密碼</div>
+    <div class="bar" style="margin-top:12px"><input id="pin" type="password" inputmode="numeric" placeholder="密碼"><button class="btn" id="pinGo">進入</button></div>
+  </div>
+</main></div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="desks"><b>我是</b>
+      <button class="desk" data-d="1">1</button><button class="desk" data-d="2">2</button>
+      <button class="desk" data-d="3">3</button><button class="desk" data-d="4">4</button><b>號報到處</b>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+  <main>
+    <div class="bar">
+      <input id="q" placeholder="掃 QR,或輸入票號 / 姓名 / 單位" autocomplete="off" autocapitalize="off">
+      <button class="btn" id="go">查詢</button>
+      <button class="btn sec" id="cam" title="用相機掃描">📷</button>
+    </div>
+    <div id="reader" class="hidden"></div>
+    <div id="banner"></div>
+    <div id="result"></div>
+    <button class="link" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
+    <div id="board" class="card hidden"></div>
+  </main>
+</div>
+
+<div id="toast" class="hidden"></div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function () {
+  var INITIAL = <?!= initial ?>;
+  var $ = function (id) { return document.getElementById(id); };
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  var PIN = store.get('pin'), DESK = store.get('desk'), busy = false, cur = null, cam = null, started = false;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+    clearTimeout(toast.h); toast.h = setTimeout(function () { t.classList.add('hidden'); }, 3500);
+  }
+  function call(action, arg) {
+    return new Promise(function (ok, ng) {
+      google.script.run.withSuccessHandler(ok).withFailureHandler(ng).api(PIN, action, arg || {});
+    }).then(function (r) {
+      if (r && r.auth === false) { showLogin(r.error); throw new Error('auth'); }
+      if (r && r.ok === false) { throw new Error(r.error || '操作失敗'); }
+      return r;
+    });
+  }
+  function fail(e) { if (e && e.message !== 'auth') toast('⚠ ' + (e.message || e) + '(請檢查網路後再試一次)'); busy = false; setBusy(false); }
+
+  /* 登入 */
+  function showLogin(msg) {
+    $('app').classList.add('hidden'); $('login').classList.remove('hidden');
+    $('loginMsg').textContent = msg || '請輸入工作人員密碼';
+    $('pin').value = ''; $('pin').focus();
+  }
+  $('pinGo').onclick = function () { PIN = $('pin').value.trim(); store.set('pin', PIN); boot(); };
+  $('pin').onkeydown = function (e) { if (e.key === 'Enter') $('pinGo').click(); };
+
+  function boot() {
+    call('ping').then(function (r) {
+      $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+      renderStats(r.stats); drawDesks();
+      if (!started) {
+        started = true;
+        setInterval(function () { call('ping').then(function (r) { renderStats(r.stats); }).catch(function () {}); }, 20000);
+        if (INITIAL) search(INITIAL); else $('q').focus();
+      }
+    }).catch(function (e) { if (e.message !== 'auth') showLogin('連線失敗:' + e.message); });
+  }
+
+  /* 報到處 */
+  function drawDesks() {
+    [].forEach.call(document.querySelectorAll('.desk'), function (b) {
+      b.classList.toggle('on', b.dataset.d === DESK);
+      b.onclick = function () { DESK = b.dataset.d; store.set('desk', DESK); drawDesks(); $('q').focus(); };
+    });
+  }
+  function needDesk() { if (!DESK) { toast('請先在上方點選「你是幾號報到處」'); return true; } return false; }
+
+  function renderStats(s) {
+    if (!s) return;
+    $('stats').innerHTML = '已報到 <b>' + s.in + '</b> / ' + s.total + '　已領禮 <b>' + s.gift + '</b> / ' + s.total;
+    window._stats = s;
+    if (!$('board').classList.contains('hidden')) renderBoard();
+  }
+  function renderBoard() {
+    var s = window._stats; if (!s) return;
+    var h = '<b>各報到處</b><table><tr><th>處</th><th>報到</th><th>領禮</th></tr>';
+    Object.keys(s.byDesk).sort().forEach(function (k) { h += '<tr><td>' + esc(k) + '</td><td>' + s.byDesk[k].in + '</td><td>' + s.byDesk[k].gift + '</td></tr>'; });
+    h += '</table><br><b>報到禮(已發 / 總數)</b><table>';
+    Object.keys(s.gifts).forEach(function (k) { h += '<tr><td>' + esc(k) + '</td><td>' + s.gifts[k].given + ' / ' + s.gifts[k].total + '(剩 ' + (s.gifts[k].total - s.gifts[k].given) + ')</td></tr>'; });
+    h += '</table><br><b>葷素人數</b><table>';
+    Object.keys(s.diets).forEach(function (k) { h += '<tr><td>' + esc(k) + '</td><td>' + s.diets[k] + '</td></tr>'; });
+    $('board').innerHTML = h + '</table>';
+  }
+  $('boardBtn').onclick = function () { $('board').classList.toggle('hidden'); renderBoard(); };
+
+  /* 搜尋 */
+  function setBusy(b) { busy = b; $('go').disabled = b; }
+  function search(text) {
+    text = String(text || '').trim();
+    if (!text || busy) return;
+    setBusy(true);
+    call('find', { q: text }).then(function (r) {
+      setBusy(false); $('q').value = ''; $('banner').innerHTML = '';
+      if (r.mode === 'none') { $('result').innerHTML = ''; banner('bad', '❌ 查無此人:' + esc(text), '請改用姓名或單位搜尋,或請賓客出示邀請函'); }
+      else if (r.mode === 'list') renderList(r.items);
+      else showParty(r);
+      $('q').focus();
+    }).catch(fail);
+  }
+  $('go').onclick = function () { search($('q').value); };
+  $('q').onkeydown = function (e) { if (e.key === 'Enter') search($('q').value); };
+
+  function banner(kind, title, sub) {
+    $('banner').innerHTML = '<div class="banner ' + kind + '">' + title + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
+  }
+
+  function renderList(items) {
+    $('result').innerHTML = '<div class="card list"><b>找到多組,請點選:</b>' + items.map(function (it) {
+      return '<div class="row" data-id="' + esc(it.id) + '"><div><b>' + esc(it.name || it.id) + '</b> <span class="org">' + esc(it.org) + '</span></div><div>' + it.done + '/' + it.count + ' 人已到</div></div>';
+    }).join('') + '</div>';
+    [].forEach.call(document.querySelectorAll('.list .row'), function (r) { r.onclick = function () { search(r.dataset.id); }; });
+  }
+
+  /* 顯示一組 */
+  function stText(t) {
+    if (t.inAt && t.giftAt) return '<span class="st done">✔ 已報到 ' + esc(t.inAt) + '(' + esc(t.inDesk) + '號處)・已領禮</span>';
+    if (t.inAt) return '<span class="st part">已報到 ' + esc(t.inAt) + '(' + esc(t.inDesk) + '號處)・尚未領禮</span>';
+    return '<span class="st none">尚未報到</span>';
+  }
+  function showParty(r, preBanner) {
+    cur = r; var p = r.party;
+    var h = '<div class="card"><div class="who">' + esc(p.name || p.id) + '</div><div class="org">' + esc(p.org) + (p.type ? '・' + esc(p.type) : '') + '・代號 ' + esc(p.id) + '</div>' +
+      '<div class="chips"><span class="chip">桌次 ' + esc(p.table || '未排') + '</span><span class="chip gift">🎁 ' + esc(p.gift || '報到禮') + '</span></div>';
+    p.tickets.forEach(function (t) {
+      var done = t.inAt && t.giftAt;
+      h += '<div class="t"><input type="checkbox" data-c="' + esc(t.code) + '"' + (done ? '' : ' checked') + '>' +
+        '<div class="info"><div class="nm">' + esc(t.name || t.code) + (t.diet ? '<span class="diet">' + esc(t.diet) + '</span>' : '') + '</div>' +
+        '<div class="st">' + esc(t.code) + '・' + stText(t) + '</div></div>' +
+        (t.inAt ? '<button class="undo" data-u="' + esc(t.code) + '" data-w="' + (t.giftAt ? 'gift' : 'in') + '">' + (t.giftAt ? '撤銷領禮' : '撤銷報到') + '</button>' : '') + '</div>';
+    });
+    h += '<div class="actions"><button class="btn main" id="doBoth"></button><button class="btn sec" id="doIn"></button>' +
+      '<button class="link" id="addM">＋ 臨時多一位同行者</button></div></div>';
+    $('result').innerHTML = h;
+    if (preBanner) { $('banner').innerHTML = preBanner; }
+    else {
+      var f = r.focus && p.tickets.filter(function (t) { return t.code.toLowerCase() === r.focus.toLowerCase(); })[0];
+      if (f && f.inAt && f.giftAt) banner('bad', '⚠ ' + esc(f.code) + ' 已報到並領禮過', esc(f.inAt) + ',' + esc(f.inDesk) + ' 號報到處。請確認是否為重複入場。');
+      else if (f && f.inAt) banner('warn', esc(f.code) + ' 已報到,但尚未領禮', '點下方綠色按鈕補發禮品');
+    }
+    [].forEach.call(document.querySelectorAll('.t input'), function (c) { c.onchange = updBtns; });
+    [].forEach.call(document.querySelectorAll('.undo'), function (b) {
+      b.onclick = function () {
+        if (!confirm(b.textContent + ':' + b.dataset.u + ' ?')) return;
+        call('undo', { code: b.dataset.u, what: b.dataset.w, desk: DESK }).then(function (x) { renderStats(x.stats); showParty(x.view); }).catch(fail);
+      };
+    });
+    $('doBoth').onclick = function () { run('both'); };
+    $('doIn').onclick = function () { run('in'); };
+    $('addM').onclick = function () {
+      if (needDesk()) return;
+      if (!confirm('確定為 ' + p.id + ' 臨時新增一位同行者?')) return;
+      call('addMember', { party: p.id, desk: DESK }).then(function (x) { renderStats(x.stats); showParty(x.view); toast('已新增 ' + x.view.focus); }).catch(fail);
+    };
+    updBtns();
+  }
+  function picked() { return [].filter.call(document.querySelectorAll('.t input'), function (c) { return c.checked; }).map(function (c) { return c.dataset.c; }); }
+  function updBtns() {
+    var n = picked().length;
+    $('doBoth').textContent = '✅ 報到並發禮(' + n + ' 人)';
+    $('doIn').textContent = '只報到,禮品稍後再發(' + n + ' 人)';
+    $('doBoth').disabled = $('doIn').disabled = n === 0;
+  }
+  function run(mode) {
+    if (needDesk() || busy) return;
+    var codes = picked(); if (!codes.length) return;
+    var p = cur.party;
+    setBusy(true); $('doBoth').disabled = $('doIn').disabled = true;
+    call('process', { codes: codes, mode: mode, desk: DESK }).then(function (r) {
+      setBusy(false); renderStats(r.stats);
+      var ok = r.results.filter(function (x) { return x.status === 'ok'; });
+      var dup = r.results.filter(function (x) { return x.status === 'dup'; });
+      var b = '';
+      if (ok.length) {
+        b += '<div class="banner ok">✔ 完成 ' + ok.length + ' 人' + (mode === 'both' ? '・發放 ' + esc(p.gift || '報到禮') + ' × ' + ok.length : '') +
+          '<small>請引導至「第 ' + esc(p.table || '?') + ' 桌」</small></div>';
+      }
+      if (dup.length) {
+        b += '<div class="banner bad">⚠ ' + dup.length + ' 人先前已處理過:' + dup.map(function (d) { return esc(d.code); }).join('、') +
+          '<small>' + esc(dup[0].inAt) + ',' + esc(dup[0].inDesk) + ' 號報到處。這次沒有重複記錄。</small></div>';
+      }
+      showParty(r.view, b);
+      $('q').focus();
+    }).catch(fail);
+  }
+
+  /* 相機掃描(若瀏覽器/Apps Script 不允許,會提示改用其他方式) */
+  $('cam').onclick = function () {
+    if (cam) { stopCam(); return; }
+    if (typeof Html5Qrcode === 'undefined') { toast('相機元件載入失敗,請改用手機內建相機掃描,或輸入票號'); return; }
+    $('reader').classList.remove('hidden');
+    cam = new Html5Qrcode('reader');
+    cam.start({ facingMode: 'environment' }, { fps: 10, qrbox: 240 }, function (txt) { stopCam(); search(txt); }, function () {})
+      .catch(function () { stopCam(); toast('這個畫面無法開啟相機。請改用手機內建相機掃 QR(會直接開啟本頁),或用掃描槍/手動輸入'); });
+  };
+  function stopCam() {
+    var c = cam; cam = null; $('reader').classList.add('hidden');
+    if (c) { c.stop().then(function () { c.clear(); }).catch(function () {}); }
+  }
+
+  if (PIN) boot(); else showLogin();
+})();
+</script>
+</body>
+</html>

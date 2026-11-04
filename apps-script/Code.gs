@@ -1,0 +1,370 @@
+/**
+ * 活動報到系統(Google 試算表 + Apps Script)
+ *
+ * 分頁:
+ *   名單  — 貴賓/民眾基本資料(代號、姓名、單位、類別、桌次、報到禮)
+ *   回函  — Google 表單回覆(代號、是否出席、出席人數、各人葷素)
+ *   票券  — 由「回函」自動產生,每人一列(vip001、vip001-1 ...),含報到/領禮狀態與 QR
+ *   設定  — 報到網址、工作人員密碼
+ *   紀錄  — 每次報到/領禮/撤銷的流水帳
+ */
+
+var SHEET = { GUESTS: '名單', RSVP: '回函', TICKETS: '票券', SETTINGS: '設定', LOG: '紀錄' };
+var MAX_PARTY = 4; // 本人 + 最多 3 位攜伴
+var COLS = 14;
+var TICKET_HEADERS = ['票號', '代號', '姓名', '單位', '類別', '葷素', '桌次', '報到禮',
+  '報到時間', '報到處', '領禮時間', '領禮處', 'QR網址', 'QR圖'];
+
+/* ───────────── 試算表選單 ───────────── */
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('📋 報到系統')
+    .addItem('① 建立分頁(第一次使用)', 'setup')
+    .addItem('② 由回函產生票券', 'menuGenerate')
+    .addItem('③ 儲存報到網址', 'menuSaveUrl')
+    .addItem('④ 查看報到網址與密碼', 'menuInfo')
+    .addToUi();
+}
+
+function menuGenerate() {
+  var msg = generateTickets_();
+  SpreadsheetApp.getUi().alert(msg);
+}
+
+function menuSaveUrl() {
+  var url = ScriptApp.getService().getUrl();
+  var ui = SpreadsheetApp.getUi();
+  if (!url) { ui.alert('還沒有部署網頁應用程式。請先照教學「部署」,再回來按這個選單。'); return; }
+  ss_().getSheetByName(SHEET.SETTINGS).getRange('B2').setValue(url);
+  ui.alert('已儲存報到網址:\n' + url +
+    (/\/exec$/.test(url) ? '' : '\n\n⚠ 網址結尾不是 /exec,請改貼「部署」後給你的網頁應用程式網址到「設定」分頁 B2。'));
+}
+
+function menuInfo() {
+  SpreadsheetApp.getUi().alert('報到網址:\n' + getSetting_('報到網址') +
+    '\n\n工作人員密碼:' + getSetting_('工作人員密碼'));
+}
+
+/* ───────────── 初始化 ───────────── */
+
+function setup() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  PropertiesService.getScriptProperties().setProperty('SSID', ss.getId());
+  ensureSheet_(ss, SHEET.GUESTS, ['代號', '姓名', '單位', '類別', '桌次', '報到禮', '備註']);
+  ensureSheet_(ss, SHEET.RSVP, ['時間戳記', '代號', '是否出席', '出席人數', '本人葷素', '攜伴1葷素', '攜伴2葷素', '攜伴3葷素']);
+  var t = ensureSheet_(ss, SHEET.TICKETS, TICKET_HEADERS);
+  t.getRange('I:I').setNumberFormat('MM/dd HH:mm:ss');
+  t.getRange('K:K').setNumberFormat('MM/dd HH:mm:ss');
+  var s = ensureSheet_(ss, SHEET.SETTINGS, ['項目', '值']);
+  if (s.getLastRow() < 3) {
+    s.getRange(2, 1, 2, 2).setValues([['報到網址', ''], ['工作人員密碼', String(Math.floor(100000 + Math.random() * 900000))]]);
+  }
+  ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
+  SpreadsheetApp.getUi().alert('分頁已準備好。請在「設定」分頁查看工作人員密碼(可自行修改)。');
+}
+
+function ensureSheet_(ss, name, headers) {
+  var sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e8eaed');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/* ───────────── 共用小工具 ───────────── */
+
+function ss_() {
+  var id = PropertiesService.getScriptProperties().getProperty('SSID');
+  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+}
+function norm_(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+
+function getSetting_(name) {
+  var sh = ss_().getSheetByName(SHEET.SETTINGS);
+  if (!sh || sh.getLastRow() < 1) return '';
+  var v = sh.getRange(1, 1, sh.getLastRow(), 2).getValues();
+  for (var i = 0; i < v.length; i++) if (String(v[i][0]).trim() === name) return String(v[i][1]).trim();
+  return '';
+}
+
+function withLock_(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function fmtT_(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, 'HH:mm:ss');
+  return v == null ? '' : String(v);
+}
+
+function extractCode_(q) {
+  q = String(q == null ? '' : q).trim();
+  var m = q.match(/[?&]t=([^&\s#]+)/);
+  if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
+  return q;
+}
+
+/* ───────────── 由回函產生票券 ───────────── */
+
+function readGuests_() {
+  var sh = ss_().getSheetByName(SHEET.GUESTS);
+  var map = {};
+  if (!sh || sh.getLastRow() < 2) return map;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r) {
+    var c = String(r[0]).trim();
+    if (c) map[norm_(c)] = { code: c };
+  });
+  return map;
+}
+
+function readRsvps_() {
+  var sh = ss_().getSheetByName(SHEET.RSVP);
+  var out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  var vals = sh.getDataRange().getValues();
+  var head = vals[0].map(String);
+  var col = function (key) { for (var i = 0; i < head.length; i++) if (head[i].indexOf(key) >= 0) return i; return -1; };
+  var cCode = col('代號'), cN = col('人數'), cAtt = col('是否出席');
+  var cDiet = [col('本人'), col('攜伴1'), col('攜伴2'), col('攜伴3')];
+  if (cCode < 0 || cN < 0) throw new Error('「回函」分頁找不到「代號」或「人數」欄位,請檢查表頭。');
+  for (var i = 1; i < vals.length; i++) {
+    var code = String(vals[i][cCode]).trim();
+    if (!code) continue;
+    var n = parseInt(vals[i][cN], 10);
+    if (isNaN(n)) n = 1;
+    if (cAtt >= 0 && /^(否|不)/.test(String(vals[i][cAtt]).trim())) n = 0;
+    n = Math.max(0, Math.min(n, MAX_PARTY));
+    out[norm_(code)] = { // 同代號以最後一筆回函為準
+      code: code, n: n,
+      diets: cDiet.map(function (c) { return c >= 0 ? String(vals[i][c]).trim() : ''; })
+    };
+  }
+  return out;
+}
+
+function ticketRow_(code, party, idx, r, diet) {
+  var G = "'" + SHEET.GUESTS + "'!$A:$G";
+  var lk = function (c) { return '=IFERROR(VLOOKUP($B' + r + ',' + G + ',' + c + ',FALSE)&"","")'; };
+  var name = idx === 0 ? lk(2)
+    : '=IFERROR(VLOOKUP($B' + r + ',' + G + ',2,FALSE)&" 的攜伴' + idx + '","")';
+  var S = "'" + SHEET.SETTINGS + "'!$B$2";
+  var qrUrl = '=IF(' + S + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL(' + S + '&"?t="&$A' + r + '))';
+  var qrImg = '=IF($M' + r + '="","",IMAGE($M' + r + '))';
+  return [code, party, name, lk(3), lk(4), diet, lk(5), lk(6), '', '', '', '', qrUrl, qrImg];
+}
+
+function generateTickets_() {
+  return withLock_(function () {
+    var ss = ss_();
+    var guests = readGuests_();
+    var rsvps = readRsvps_();
+    var sh = ss.getSheetByName(SHEET.TICKETS);
+    var existing = {};
+    var last = Math.max(sh.getLastRow(), 1);
+    if (last > 1) sh.getRange(2, 1, last - 1, 1).getValues().forEach(function (r, i) {
+      if (r[0] !== '') existing[norm_(r[0])] = i + 2;
+    });
+    var rows = [], added = 0, updated = 0, warns = [];
+    Object.keys(rsvps).forEach(function (k) {
+      var r = rsvps[k];
+      var g = guests[k];
+      var party = g ? g.code : r.code;
+      if (!g && r.n > 0) warns.push('回函代號「' + r.code + '」不在「名單」分頁(姓名會是空白)');
+      for (var i = 0; i < r.n; i++) {
+        var code = i === 0 ? party : party + '-' + i;
+        var diet = r.diets[i] || '';
+        var row = existing[norm_(code)];
+        if (row) {
+          if (diet) sh.getRange(row, 6).setValue(diet);
+          updated++;
+        } else {
+          rows.push(ticketRow_(code, party, i, last + 1 + rows.length, diet));
+          existing[norm_(code)] = -1;
+          added++;
+        }
+      }
+      // 人數減少時提醒,不自動刪除
+      var p = norm_(party);
+      Object.keys(existing).forEach(function (ek) {
+        var idx = ek === p ? 0 : (ek.indexOf(p + '-') === 0 ? parseInt(ek.slice(p.length + 1), 10) : -1);
+        if (idx >= r.n && existing[ek] > 0) warns.push('票 ' + ek + ' 超出回函人數(' + r.n + '人),請確認是否要手動刪除該列');
+      });
+    });
+    if (rows.length) sh.getRange(last + 1, 1, rows.length, COLS).setValues(rows);
+    SpreadsheetApp.flush();
+    return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
+      (warns.length ? '\n\n⚠ 注意:\n' + warns.slice(0, 15).join('\n') : '');
+  });
+}
+
+/* ───────────── 網頁 ───────────── */
+
+function doGet(e) {
+  var tpl = HtmlService.createTemplateFromFile('index');
+  tpl.initial = JSON.stringify((e && e.parameter && e.parameter.t) || '').replace(/</g, '\\u003c');
+  return tpl.evaluate().setTitle('活動報到系統')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/** 網頁唯一入口:所有操作都要帶工作人員密碼 */
+function api(pin, action, arg) {
+  var expected = getSetting_('工作人員密碼');
+  if (!expected) return { ok: false, auth: false, error: '尚未設定工作人員密碼(見「設定」分頁)' };
+  if (String(pin == null ? '' : pin).trim() !== expected) return { ok: false, auth: false, error: '密碼錯誤' };
+  arg = arg || {};
+  switch (action) {
+    case 'ping': return { ok: true, stats: stats_() };
+    case 'find': return find_(arg.q);
+    case 'process': return withLock_(function () { return process_(arg); });
+    case 'undo': return withLock_(function () { return undo_(arg); });
+    case 'addMember': return withLock_(function () { return addMember_(arg); });
+    default: return { ok: false, error: '未知操作' };
+  }
+}
+
+function readTickets_() {
+  var ss = ss_();
+  var sh = ss.getSheetByName(SHEET.TICKETS);
+  var tz = ss.getSpreadsheetTimeZone();
+  var n = Math.max(sh.getLastRow() - 1, 0);
+  var vals = n ? sh.getRange(2, 1, n, 12).getValues() : [];
+  var list = [];
+  vals.forEach(function (r, i) {
+    if (String(r[0]).trim() === '') return;
+    list.push({
+      row: i + 2, code: String(r[0]).trim(), party: String(r[1]).trim(),
+      name: String(r[2]), org: String(r[3]), type: String(r[4]), diet: String(r[5]),
+      table: String(r[6]), gift: String(r[7]),
+      inAt: fmtT_(r[8], tz), inDesk: String(r[9]), giftAt: fmtT_(r[10], tz), giftDesk: String(r[11])
+    });
+  });
+  return { sh: sh, list: list };
+}
+
+function suffix_(t) { var m = t.code.match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }
+
+function partyView_(list, party, focus) {
+  var key = norm_(party);
+  var ts = list.filter(function (t) { return norm_(t.party) === key; })
+    .sort(function (a, b) { return suffix_(a) - suffix_(b); })
+    .map(function (t) {
+      return { code: t.code, name: t.name, diet: t.diet, inAt: t.inAt, inDesk: t.inDesk, giftAt: t.giftAt, giftDesk: t.giftDesk };
+    });
+  var head = list.filter(function (t) { return norm_(t.party) === key; })
+    .sort(function (a, b) { return suffix_(a) - suffix_(b); })[0] || {};
+  return {
+    ok: true, mode: 'party', focus: focus || '',
+    party: { id: party, name: head.name || '', org: head.org || '', type: head.type || '',
+      table: head.table || '', gift: head.gift || '', tickets: ts }
+  };
+}
+
+function find_(q) {
+  var key = norm_(extractCode_(q));
+  if (!key) return { ok: true, mode: 'none' };
+  var d = readTickets_();
+  var exact = d.list.filter(function (t) { return norm_(t.code) === key; });
+  if (exact.length) return partyView_(d.list, exact[0].party, exact[0].code);
+  var parties = {};
+  d.list.forEach(function (t) {
+    if (norm_(t.code).indexOf(key) >= 0 || norm_(t.name).indexOf(key) >= 0 ||
+        norm_(t.org).indexOf(key) >= 0 || norm_(t.party) === key) parties[norm_(t.party)] = t.party;
+  });
+  var keys = Object.keys(parties);
+  if (!keys.length) return { ok: true, mode: 'none', q: q };
+  if (keys.length === 1) return partyView_(d.list, parties[keys[0]], '');
+  return {
+    ok: true, mode: 'list',
+    items: keys.slice(0, 30).map(function (k) {
+      var v = partyView_(d.list, parties[k], '').party;
+      var done = v.tickets.filter(function (t) { return t.inAt; }).length;
+      return { id: v.id, name: v.name, org: v.org, count: v.tickets.length, done: done };
+    })
+  };
+}
+
+function log_(desk, action, code, result) {
+  ss_().getSheetByName(SHEET.LOG).appendRow([new Date(), desk, action, code, result]);
+}
+
+function process_(arg) {
+  var d = readTickets_();
+  var desk = String(arg.desk || '?');
+  var mode = arg.mode === 'in' ? 'in' : 'both';
+  var now = new Date();
+  var results = [], party = '';
+  (arg.codes || []).forEach(function (code) {
+    var key = norm_(code);
+    var t = d.list.filter(function (x) { return norm_(x.code) === key; })[0];
+    if (!t) { results.push({ code: code, status: 'notfound' }); return; }
+    party = t.party;
+    var did = [];
+    if (!t.inAt) { d.sh.getRange(t.row, 9, 1, 2).setValues([[now, desk]]); did.push('報到'); }
+    if (mode === 'both' && !t.giftAt) { d.sh.getRange(t.row, 11, 1, 2).setValues([[now, desk]]); did.push('領禮'); }
+    if (did.length) {
+      results.push({ code: t.code, status: 'ok', did: did });
+      log_(desk, did.join('+'), t.code, '成功');
+    } else {
+      results.push({ code: t.code, status: 'dup', inAt: t.inAt, inDesk: t.inDesk, giftAt: t.giftAt, giftDesk: t.giftDesk });
+      log_(desk, mode === 'in' ? '報到' : '報到+領禮', t.code, '重複(原 ' + t.inAt + ' 第' + t.inDesk + '處)');
+    }
+  });
+  SpreadsheetApp.flush();
+  var fresh = readTickets_();
+  return { ok: true, results: results, view: party ? partyView_(fresh.list, party, '') : null, stats: stats_(fresh.list) };
+}
+
+function undo_(arg) {
+  var d = readTickets_();
+  var key = norm_(arg.code);
+  var t = d.list.filter(function (x) { return norm_(x.code) === key; })[0];
+  if (!t) return { ok: false, error: '找不到票 ' + arg.code };
+  var desk = String(arg.desk || '?');
+  if (arg.what === 'gift') {
+    d.sh.getRange(t.row, 11, 1, 2).clearContent();
+    log_(desk, '撤銷領禮', t.code, '成功');
+  } else {
+    d.sh.getRange(t.row, 9, 1, 4).clearContent();
+    log_(desk, '撤銷報到', t.code, '成功');
+  }
+  SpreadsheetApp.flush();
+  var fresh = readTickets_();
+  return { ok: true, view: partyView_(fresh.list, t.party, ''), stats: stats_(fresh.list) };
+}
+
+function addMember_(arg) {
+  var d = readTickets_();
+  var key = norm_(arg.party);
+  var mine = d.list.filter(function (t) { return norm_(t.party) === key; });
+  if (!mine.length) return { ok: false, error: '找不到此組' };
+  var max = 0;
+  mine.forEach(function (t) { max = Math.max(max, suffix_(t)); });
+  var idx = max + 1;
+  var party = mine[0].party;
+  var r = d.sh.getLastRow() + 1;
+  d.sh.getRange(r, 1, 1, COLS).setValues([ticketRow_(party + '-' + idx, party, idx, r, '')]);
+  SpreadsheetApp.flush();
+  log_(String(arg.desk || '?'), '現場加人', party + '-' + idx, '成功');
+  var fresh = readTickets_();
+  return { ok: true, view: partyView_(fresh.list, party, party + '-' + idx), stats: stats_(fresh.list) };
+}
+
+function stats_(list) {
+  list = list || readTickets_().list;
+  var s = { total: list.length, in: 0, gift: 0, byDesk: {}, gifts: {}, diets: {} };
+  list.forEach(function (t) {
+    var gt = t.gift || '(未設定)';
+    s.gifts[gt] = s.gifts[gt] || { total: 0, given: 0 };
+    s.gifts[gt].total++;
+    var dt = t.diet || '(未填)';
+    s.diets[dt] = (s.diets[dt] || 0) + 1;
+    if (t.inAt) { s.in++; var a = s.byDesk[t.inDesk] = s.byDesk[t.inDesk] || { in: 0, gift: 0 }; a.in++; }
+    if (t.giftAt) {
+      s.gift++; s.gifts[gt].given++;
+      var b = s.byDesk[t.giftDesk] = s.byDesk[t.giftDesk] || { in: 0, gift: 0 }; b.gift++;
+    }
+  });
+  return s;
+}

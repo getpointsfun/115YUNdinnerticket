@@ -90,7 +90,10 @@ function setup() {
     s.getRange(2, 1, 2, 2).setValues([['報到網址', ''], ['工作人員密碼', String(Math.floor(100000 + Math.random() * 900000))]]);
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
-  if (!getSetting_('回函表單預填網址')) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([['回函表單預填網址', '']]);
+  ['回函表單預填網址', '回函來源試算表'].forEach(function (nm) {
+    var v = s.getRange(1, 1, s.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim(); });
+    if (v.indexOf(nm) < 0) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([[nm, '']]);
+  });
   SpreadsheetApp.getUi().alert('分頁已準備好。請在「設定」分頁查看工作人員密碼(可自行修改)。');
 }
 
@@ -139,37 +142,86 @@ function extractCode_(q) {
 
 /* ───────────── 由回函產生票券 ───────────── */
 
-function readGuests_() {
-  var sh = ss_().getSheetByName(SHEET.GUESTS);
-  var map = {};
-  if (!sh || sh.getLastRow() < 2) return map;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r) {
-    var c = String(r[0]).trim();
-    if (c) map[norm_(c)] = { code: c };
-  });
-  return map;
+function nameKey_(s) {
+  return String(s == null ? '' : s).normalize('NFKC').replace(/[\s　]/g, '').toLowerCase();
 }
 
-function readRsvps_() {
-  var sh = ss_().getSheetByName(SHEET.RSVP);
-  var out = {};
+function readGuests_() {
+  var sh = ss_().getSheetByName(SHEET.GUESTS);
+  var out = { byCode: {}, byName: {} };
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+    var c = String(r[0]).trim();
+    if (!c) return;
+    var g = { code: c, name: String(r[1]).trim(), org: String(r[2]).trim() };
+    out.byCode[norm_(c)] = g;
+    var nk = nameKey_(g.name);
+    if (nk) (out.byName[nk] = out.byName[nk] || []).push(g);
+  });
+  return out;
+}
+
+/** 回函資料來源:預設是本試算表的「回函」分頁;若「設定」填了「回函來源試算表」,則直接讀那份(表單回覆)的第一個分頁 */
+function rsvpSheet_() {
+  var src = getSetting_('回函來源試算表');
+  if (!src) return ss_().getSheetByName(SHEET.RSVP);
+  var m = src.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return SpreadsheetApp.openById(m ? m[1] : src).getSheets()[0];
+}
+
+/**
+ * 讀回函。支援兩種表單:
+ *  (A) 有「代號」欄:用代號對應名單
+ *  (B) 沒有代號:用「姓名」(必要時加「服務單位」)對應名單
+ * 人數欄:「攜伴人數」(不含本人,會自動 +1) 或「出席人數」(含本人)
+ * 葷素欄:「本人…」「攜伴1…」「攜伴2…」「攜伴3…」(有幾個讀幾個)
+ */
+function readRsvps_(guests) {
+  var sh = rsvpSheet_();
+  var out = { map: {}, unmatched: [] };
   if (!sh || sh.getLastRow() < 2) return out;
   var vals = sh.getDataRange().getValues();
   var head = vals[0].map(String);
-  var col = function (key) { for (var i = 0; i < head.length; i++) if (head[i].indexOf(key) >= 0) return i; return -1; };
-  var cCode = col('代號'), cN = col('人數'), cAtt = col('是否出席');
-  var cDiet = [col('本人'), col('攜伴1'), col('攜伴2'), col('攜伴3')];
-  if (cCode < 0 || cN < 0) throw new Error('「回函」分頁找不到「代號」或「人數」欄位,請檢查表頭。');
+  var col = function (pred) { for (var i = 0; i < head.length; i++) if (pred(head[i])) return i; return -1; };
+  var has = function (k) { return function (h) { return h.indexOf(k) >= 0; }; };
+  var cCode = col(has('代號')), cName = col(has('姓名')), cOrg = col(has('單位')), cAtt = col(has('是否出席'));
+  var cComp = col(function (h) { return h.indexOf('攜伴') >= 0 && h.indexOf('人數') >= 0; });
+  var cTotal = col(function (h) { return h.indexOf('人數') >= 0 && h.indexOf('攜伴') < 0; });
+  var cDiet = [col(has('本人')), col(has('攜伴1')), col(has('攜伴2')), col(has('攜伴3'))];
+  if ((cCode < 0 && cName < 0) || (cComp < 0 && cTotal < 0)) {
+    throw new Error('回函的表頭需要有「姓名」(或「代號」),以及「攜伴人數」(或「出席人數」)。目前表頭:' + head.join('、'));
+  }
+  var DECLINE = /(否|不出席|不克|無法|婉拒|不參加)/;
   for (var i = 1; i < vals.length; i++) {
-    var code = String(vals[i][cCode]).trim();
-    if (!code) continue;
-    var n = parseInt(vals[i][cN], 10);
-    if (isNaN(n)) n = 1;
-    if (cAtt >= 0 && /^(否|不)/.test(String(vals[i][cAtt]).trim())) n = 0;
+    var row = vals[i], g = null, label = '';
+    var declined = cAtt >= 0 && DECLINE.test(String(row[cAtt]));
+    if (cCode >= 0 && String(row[cCode]).trim()) {
+      label = String(row[cCode]).trim();
+      g = guests.byCode[norm_(label)] || null;
+    }
+    if (!g && cName >= 0 && String(row[cName]).trim()) {
+      label = String(row[cName]).trim();
+      var cands = guests.byName[nameKey_(label)] || [];
+      if (cands.length > 1 && cOrg >= 0) {
+        var org = nameKey_(row[cOrg]);
+        var narrowed = cands.filter(function (c) {
+          var o = nameKey_(c.org);
+          return org && o && (o.indexOf(org) >= 0 || org.indexOf(o) >= 0);
+        });
+        if (narrowed.length) cands = narrowed;
+      }
+      if (cands.length === 1) g = cands[0];
+      else if (cands.length > 1) { out.unmatched.push(label + '(名單有多位同名,請手動處理)'); continue; }
+    }
+    if (!g) { if (label && !declined) out.unmatched.push(label); continue; }
+    var n;
+    if (cComp >= 0) { var m = String(row[cComp]).match(/\d+/); n = 1 + (m ? parseInt(m[0], 10) : 0); }
+    else { var t = String(row[cTotal]).match(/\d+/); n = t ? parseInt(t[0], 10) : 1; }
+    if (declined) n = 0;
     n = Math.max(0, Math.min(n, MAX_PARTY));
-    out[norm_(code)] = { // 同代號以最後一筆回函為準
-      code: code, n: n,
-      diets: cDiet.map(function (c) { return c >= 0 ? String(vals[i][c]).trim() : ''; })
+    out.map[norm_(g.code)] = { // 同一人回函多次,以最後一筆為準
+      code: g.code, n: n,
+      diets: cDiet.map(function (c) { return c >= 0 ? String(row[c]).trim() : ''; })
     };
   }
   return out;
@@ -190,7 +242,8 @@ function generateTickets_() {
   return withLock_(function () {
     var ss = ss_();
     var guests = readGuests_();
-    var rsvps = readRsvps_();
+    var rs = readRsvps_(guests);
+    var rsvps = rs.map;
     var sh = ss.getSheetByName(SHEET.TICKETS);
     var existing = {};
     var last = Math.max(sh.getLastRow(), 1);
@@ -200,9 +253,7 @@ function generateTickets_() {
     var rows = [], added = 0, updated = 0, warns = [];
     Object.keys(rsvps).forEach(function (k) {
       var r = rsvps[k];
-      var g = guests[k];
-      var party = g ? g.code : r.code;
-      if (!g && r.n > 0) warns.push('回函代號「' + r.code + '」不在「名單」分頁(姓名會是空白)');
+      var party = r.code;
       for (var i = 0; i < r.n; i++) {
         var code = i === 0 ? party : party + '-' + i;
         var diet = r.diets[i] || '';
@@ -225,16 +276,20 @@ function generateTickets_() {
     });
     // 名單上還沒回函的貴賓:先建立本人一張票,手持報到 QR 到場也能報到
     var noRsvp = 0;
-    Object.keys(guests).forEach(function (k) {
+    Object.keys(guests.byCode).forEach(function (k) {
       if (rsvps[k] || existing[k]) return;
-      rows.push(ticketRow_(guests[k].code, guests[k].code, 0, last + 1 + rows.length, ''));
+      var gc = guests.byCode[k].code;
+      rows.push(ticketRow_(gc, gc, 0, last + 1 + rows.length, ''));
       existing[k] = -1; added++; noRsvp++;
     });
     if (rows.length) sh.getRange(last + 1, 1, rows.length, COLS).setValues(rows);
     SpreadsheetApp.flush();
-    if (noRsvp) warns.unshift('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
+    rs.unmatched.slice().reverse().forEach(function (nm) {
+      warns.unshift('回函中的「' + nm + '」在名單找不到對應的人,請確認姓名是否一致(需手動處理,否則不會產生票券)');
+    });
+    if (noRsvp) warns.push('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
-      (warns.length ? '\n\n⚠ 注意:\n' + warns.slice(0, 15).join('\n') : '');
+      (warns.length ? '\n\n⚠ 注意(共 ' + warns.length + ' 項):\n' + warns.slice(0, 20).join('\n') : '');
   });
 }
 

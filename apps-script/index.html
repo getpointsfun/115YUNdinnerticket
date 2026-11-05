@@ -14,6 +14,8 @@
   .desks b { font-size:15px; color:var(--mute); }
   .desk { border:2px solid var(--line); background:#fff; border-radius:10px; padding:8px 14px; font-size:18px; font-weight:700; }
   .desk.on { background:var(--pri); border-color:var(--pri); color:#fff; }
+  .sync { font-size:15px; font-weight:700; margin-left:auto; padding:4px 10px; border-radius:999px; }
+  .sync.ok { background:var(--okbg); color:var(--ok); } .sync.warn { background:var(--warnbg); color:var(--warn); } .sync.bad { background:var(--badbg); color:var(--bad); }
   .stats { margin-top:8px; font-size:16px; color:var(--mute); display:flex; gap:14px; flex-wrap:wrap; }
   .stats b { color:var(--ink); }
   main { padding:12px; max-width:760px; margin:0 auto; }
@@ -66,7 +68,7 @@
   <header>
     <div class="desks"><b>我是</b>
       <button class="desk" data-d="1">1</button><button class="desk" data-d="2">2</button>
-      <button class="desk" data-d="3">3</button><button class="desk" data-d="4">4</button><b>號報到處</b>
+      <button class="desk" data-d="3">3</button><button class="desk" data-d="4">4</button><b>號報到處</b><span class="sync ok" id="sync">✔ 已同步</span>
     </div>
     <div class="stats" id="stats"></div>
   </header>
@@ -76,6 +78,7 @@
       <button class="btn" id="go">查詢</button>
       <button class="btn sec" id="cam" title="用相機掃描">📷</button>
     </div>
+    <div id="alerts"></div>
     <div id="reader" class="hidden"></div>
     <div id="banner"></div>
     <div id="result"></div>
@@ -95,29 +98,111 @@
     get: function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
-  var PIN = store.get('pin'), DESK = store.get('desk'), busy = false, cur = null, cam = null, started = false;
+  var PIN = store.get('pin'), DESK = store.get('desk');
+  var T = {};            // 本機名單:票號(小寫) -> 票
+  var Q = [];            // 待送出的操作(依序)
+  var conflicts = [];    // 事後發現的重複
+  var sending = false, online = true, started = false, cur = '', cam = null, pulling = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function norm(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
   function toast(msg) {
     var t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
     clearTimeout(toast.h); toast.h = setTimeout(function () { t.classList.add('hidden'); }, 3500);
   }
-  function call(action, arg) {
-    return new Promise(function (ok, ng) {
-      google.script.run.withSuccessHandler(ok).withFailureHandler(ng).api(PIN, action, arg || {});
-    }).then(function (r) {
-      if (r && r.auth === false) { showLogin(r.error); throw new Error('auth'); }
-      if (r && r.ok === false) { throw new Error(r.error || '操作失敗'); }
-      return r;
+  function nowStr() { var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; }; return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8) + 'd' + DESK; }
+  function extractCode(q) {
+    q = String(q == null ? '' : q).trim();
+    var m = q.match(/[?&]t=([^&\s#]+)/);
+    if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
+    return q;
+  }
+  function suffix(t) { var m = t.code.match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }
+  function list() { return Object.keys(T).map(function (k) { return T[k]; }); }
+  function partyTickets(p) {
+    var k = norm(p);
+    return list().filter(function (t) { return norm(t.party) === k; }).sort(function (a, b) { return suffix(a) - suffix(b); });
+  }
+
+  /* ───── 本機暫存(斷網也能繼續) ───── */
+  function saveLocal() { store.set('snap', JSON.stringify(list())); store.set('queue', JSON.stringify(Q)); }
+  function restoreLocal() {
+    try {
+      JSON.parse(store.get('snap') || '[]').forEach(function (t) { T[norm(t.code)] = t; });
+      Q = JSON.parse(store.get('queue') || '[]');
+    } catch (e) {}
+  }
+
+  /* ───── 與試算表同步 ───── */
+  function renderSync() {
+    var el = $('sync');
+    if (Q.length) { el.textContent = '⏳ 待同步 ' + Q.length + ' 筆'; el.className = 'sync warn'; }
+    else if (!online) { el.textContent = '⚠ 離線(用暫存資料)'; el.className = 'sync bad'; }
+    else { el.textContent = '✔ 已同步'; el.className = 'sync ok'; }
+  }
+  function pendingCodes() {
+    var s = {};
+    Q.forEach(function (op) { (op.codes || [op.code]).forEach(function (c) { s[norm(c)] = 1; }); });
+    return s;
+  }
+  function mergeSnapshot(arr) {
+    var pend = pendingCodes(), n = {};
+    arr.forEach(function (t) { var k = norm(t.code); n[k] = (pend[k] && T[k]) ? T[k] : t; });
+    T = n; saveLocal(); renderStats();
+  }
+  function pullSnapshot(cb) {
+    if (pulling) return; pulling = true;
+    google.script.run.withSuccessHandler(function (r) {
+      pulling = false;
+      if (r && r.auth === false) { showLogin(r.error); return; }
+      if (r && r.ok) { online = true; mergeSnapshot(r.tickets); renderSync(); if (cb) cb(true); }
+      else { renderSync(); if (cb) cb(false); }
+    }).withFailureHandler(function () {
+      pulling = false; online = false; renderSync(); if (cb) cb(false);
+    }).api(PIN, 'snapshot', {});
+  }
+  function pump() {
+    if (sending || !Q.length) { renderSync(); return; }
+    sending = true;
+    var op = Q[0];
+    google.script.run.withSuccessHandler(function (r) {
+      sending = false;
+      if (r && r.auth === false) { showLogin(r.error); return; }
+      Q.shift(); saveLocal(); online = true;
+      if (!r || r.ok === false) toast('⚠ 有一筆同步失敗:' + ((r && r.error) || '未知原因') + '。請通知管理員。');
+      else handleResults(r);
+      renderSync(); pump();
+    }).withFailureHandler(function () {
+      sending = false; online = false; renderSync();
+    }).api(PIN, op.kind, op);
+  }
+  function handleResults(r) {
+    (r.results || []).forEach(function (x) {
+      if (x.status === 'dup') {
+        var t = T[norm(x.code)];
+        if (t) { t.inAt = x.inAt; t.inDesk = x.inDesk; t.giftAt = x.giftAt; t.giftDesk = x.giftDesk; }
+        conflicts.push(x.code + ' 其實早已於 ' + x.inAt + ' 在第 ' + x.inDesk + ' 號報到處' + (x.giftAt ? '報到並領禮' : '報到') + '。這次是重複入場,請確認!');
+      } else if (x.status === 'notfound') {
+        conflicts.push('找不到票 ' + x.code + '(名單可能已被更動)');
+      }
+    });
+    renderAlerts();
+  }
+  function renderAlerts() {
+    $('alerts').innerHTML = conflicts.map(function (c, i) {
+      return '<div class="banner bad">⚠ ' + esc(c) + ' <button class="undo" data-i="' + i + '">知道了</button></div>';
+    }).join('');
+    [].forEach.call($('alerts').querySelectorAll('button'), function (b) {
+      b.onclick = function () { conflicts.splice(+b.dataset.i, 1); renderAlerts(); };
     });
   }
-  function fail(e) { if (e && e.message !== 'auth') toast('⚠ ' + (e.message || e) + '(請檢查網路後再試一次)'); busy = false; setBusy(false); }
 
-  /* 登入 */
+  /* ───── 登入 / 啟動 ───── */
   function showLogin(msg) {
     $('app').classList.add('hidden'); $('login').classList.remove('hidden');
     $('loginMsg').textContent = msg || '請輸入工作人員密碼';
@@ -127,18 +212,22 @@
   $('pin').onkeydown = function (e) { if (e.key === 'Enter') $('pinGo').click(); };
 
   function boot() {
-    call('ping').then(function (r) {
+    if (!started) restoreLocal();
+    pullSnapshot(function (ok) {
+      if (!ok && !Object.keys(T).length) { showLogin('連線失敗,且這台裝置還沒有暫存名單。請確認網路後再試。'); return; }
       $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-      renderStats(r.stats); drawDesks();
+      drawDesks(); renderStats(); renderSync(); pump();
+      if (!ok) toast('目前離線,使用這台裝置上次載入的名單');
       if (!started) {
         started = true;
-        setInterval(function () { call('ping').then(function (r) { renderStats(r.stats); }).catch(function () {}); }, 20000);
+        setInterval(function () { pullSnapshot(); }, 8000);
+        setInterval(pump, 4000);
         if (INITIAL) search(INITIAL); else $('q').focus();
       }
-    }).catch(function (e) { if (e.message !== 'auth') showLogin('連線失敗:' + e.message); });
+    });
   }
 
-  /* 報到處 */
+  /* ───── 報到處 / 統計 ───── */
   function drawDesks() {
     [].forEach.call(document.querySelectorAll('.desk'), function (b) {
       b.classList.toggle('on', b.dataset.d === DESK);
@@ -147,14 +236,24 @@
   }
   function needDesk() { if (!DESK) { toast('請先在上方點選「你是幾號報到處」'); return true; } return false; }
 
-  function renderStats(s) {
-    if (!s) return;
-    $('stats').innerHTML = '已報到 <b>' + s.in + '</b> / ' + s.total + '　已領禮 <b>' + s.gift + '</b> / ' + s.total;
-    window._stats = s;
-    if (!$('board').classList.contains('hidden')) renderBoard();
+  function computeStats() {
+    var s = { total: 0, in: 0, gift: 0, byDesk: {}, gifts: {}, diets: {} };
+    list().forEach(function (t) {
+      s.total++;
+      var gt = t.gift || '(未設定)'; s.gifts[gt] = s.gifts[gt] || { total: 0, given: 0 }; s.gifts[gt].total++;
+      var dt = t.diet || '(未填)'; s.diets[dt] = (s.diets[dt] || 0) + 1;
+      if (t.inAt) { s.in++; (s.byDesk[t.inDesk] = s.byDesk[t.inDesk] || { in: 0, gift: 0 }).in++; }
+      if (t.giftAt) { s.gift++; s.gifts[gt].given++; (s.byDesk[t.giftDesk] = s.byDesk[t.giftDesk] || { in: 0, gift: 0 }).gift++; }
+    });
+    return s;
   }
-  function renderBoard() {
-    var s = window._stats; if (!s) return;
+  function renderStats() {
+    var s = computeStats();
+    $('stats').innerHTML = '已報到 <b>' + s.in + '</b> / ' + s.total + '　已領禮 <b>' + s.gift + '</b> / ' + s.total;
+    if (!$('board').classList.contains('hidden')) renderBoard(s);
+  }
+  function renderBoard(s) {
+    s = s || computeStats();
     var h = '<b>各報到處</b><table><tr><th>處</th><th>報到</th><th>領禮</th></tr>';
     Object.keys(s.byDesk).sort().forEach(function (k) { h += '<tr><td>' + esc(k) + '</td><td>' + s.byDesk[k].in + '</td><td>' + s.byDesk[k].gift + '</td></tr>'; });
     h += '</table><br><b>報到禮(已發 / 總數)</b><table>';
@@ -165,45 +264,49 @@
   }
   $('boardBtn').onclick = function () { $('board').classList.toggle('hidden'); renderBoard(); };
 
-  /* 搜尋 */
-  function setBusy(b) { busy = b; $('go').disabled = b; }
+  /* ───── 本機搜尋(瞬間完成) ───── */
+  function banner(kind, title, sub) {
+    $('banner').innerHTML = '<div class="banner ' + kind + '">' + title + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
+  }
   function search(text) {
-    text = String(text || '').trim();
-    if (!text || busy) return;
-    setBusy(true);
-    call('find', { q: text }).then(function (r) {
-      setBusy(false); $('q').value = ''; $('banner').innerHTML = '';
-      if (r.mode === 'none') { $('result').innerHTML = ''; banner('bad', '❌ 查無此人:' + esc(text), '請改用姓名或單位搜尋,或請賓客出示邀請函'); }
-      else if (r.mode === 'list') renderList(r.items);
-      else showParty(r);
-      $('q').focus();
-    }).catch(fail);
+    text = String(text || '').trim(); if (!text) return;
+    $('q').value = ''; $('banner').innerHTML = '';
+    var q = extractCode(text), key = norm(q), l = list();
+    var exact = l.filter(function (t) { return norm(t.code) === key; })[0];
+    if (exact) { showParty(exact.party, exact.code); $('q').focus(); return; }
+    var parties = {};
+    l.forEach(function (t) {
+      if (norm(t.code).indexOf(key) >= 0 || norm(t.name).indexOf(key) >= 0 || norm(t.org).indexOf(key) >= 0 || norm(t.party) === key) parties[norm(t.party)] = t.party;
+    });
+    var ks = Object.keys(parties);
+    if (!ks.length) { $('result').innerHTML = ''; banner('bad', '❌ 查無此人:' + esc(text), '請改用姓名或單位搜尋,或請賓客出示邀請函'); }
+    else if (ks.length === 1) showParty(parties[ks[0]], '');
+    else renderList(ks.slice(0, 30).map(function (k) { return parties[k]; }));
+    $('q').focus();
   }
   $('go').onclick = function () { search($('q').value); };
   $('q').onkeydown = function (e) { if (e.key === 'Enter') search($('q').value); };
 
-  function banner(kind, title, sub) {
-    $('banner').innerHTML = '<div class="banner ' + kind + '">' + title + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
-  }
-
-  function renderList(items) {
-    $('result').innerHTML = '<div class="card list"><b>找到多組,請點選:</b>' + items.map(function (it) {
-      return '<div class="row" data-id="' + esc(it.id) + '"><div><b>' + esc(it.name || it.id) + '</b> <span class="org">' + esc(it.org) + '</span></div><div>' + it.done + '/' + it.count + ' 人已到</div></div>';
+  function renderList(ids) {
+    $('result').innerHTML = '<div class="card list"><b>找到多組,請點選:</b>' + ids.map(function (id) {
+      var ts = partyTickets(id), h = ts[0], done = ts.filter(function (t) { return t.inAt; }).length;
+      return '<div class="row" data-id="' + esc(id) + '"><div><b>' + esc(h.name || id) + '</b> <span class="org">' + esc(h.org) + '</span></div><div>' + done + '/' + ts.length + ' 人已到</div></div>';
     }).join('') + '</div>';
-    [].forEach.call(document.querySelectorAll('.list .row'), function (r) { r.onclick = function () { search(r.dataset.id); }; });
+    [].forEach.call(document.querySelectorAll('.list .row'), function (r) { r.onclick = function () { showParty(r.dataset.id, ''); }; });
   }
 
-  /* 顯示一組 */
   function stText(t) {
     if (t.inAt && t.giftAt) return '<span class="st done">✔ 已報到 ' + esc(t.inAt) + '(' + esc(t.inDesk) + '號處)・已領禮</span>';
     if (t.inAt) return '<span class="st part">已報到 ' + esc(t.inAt) + '(' + esc(t.inDesk) + '號處)・尚未領禮</span>';
     return '<span class="st none">尚未報到</span>';
   }
-  function showParty(r, preBanner) {
-    cur = r; var p = r.party;
-    var h = '<div class="card"><div class="who">' + esc(p.name || p.id) + '</div><div class="org">' + esc(p.org) + (p.type ? '・' + esc(p.type) : '') + '・代號 ' + esc(p.id) + '</div>' +
+  function showParty(pid, focus, preBanner) {
+    cur = pid;
+    var ts = partyTickets(pid); if (!ts.length) return;
+    var p = ts[0];
+    var h = '<div class="card"><div class="who">' + esc(p.name || pid) + '</div><div class="org">' + esc(p.org) + (p.type ? '・' + esc(p.type) : '') + '・代號 ' + esc(pid) + '</div>' +
       '<div class="chips"><span class="chip">桌次 ' + esc(p.table || '未排') + '</span><span class="chip gift">🎁 ' + esc(p.gift || '報到禮') + '</span></div>';
-    p.tickets.forEach(function (t) {
+    ts.forEach(function (t) {
       var done = t.inAt && t.giftAt;
       h += '<div class="t"><input type="checkbox" data-c="' + esc(t.code) + '"' + (done ? '' : ' checked') + '>' +
         '<div class="info"><div class="nm">' + esc(t.name || t.code) + (t.diet ? '<span class="diet">' + esc(t.diet) + '</span>' : '') + '</div>' +
@@ -211,27 +314,34 @@
         (t.inAt ? '<button class="undo" data-u="' + esc(t.code) + '" data-w="' + (t.giftAt ? 'gift' : 'in') + '">' + (t.giftAt ? '撤銷領禮' : '撤銷報到') + '</button>' : '') + '</div>';
     });
     h += '<div class="actions"><button class="btn main" id="doBoth"></button><button class="btn sec" id="doIn"></button>' +
-      '<button class="link" id="addM">＋ 臨時多一位同行者</button></div></div>';
+      '<button class="link" id="addM">＋ 臨時多一位同行者(需連線)</button></div></div>';
     $('result').innerHTML = h;
-    if (preBanner) { $('banner').innerHTML = preBanner; }
-    else {
-      var f = r.focus && p.tickets.filter(function (t) { return t.code.toLowerCase() === r.focus.toLowerCase(); })[0];
+    if (preBanner) $('banner').innerHTML = preBanner;
+    else if (focus) {
+      var f = T[norm(focus)];
       if (f && f.inAt && f.giftAt) banner('bad', '⚠ ' + esc(f.code) + ' 已報到並領禮過', esc(f.inAt) + ',' + esc(f.inDesk) + ' 號報到處。請確認是否為重複入場。');
       else if (f && f.inAt) banner('warn', esc(f.code) + ' 已報到,但尚未領禮', '點下方綠色按鈕補發禮品');
     }
     [].forEach.call(document.querySelectorAll('.t input'), function (c) { c.onchange = updBtns; });
     [].forEach.call(document.querySelectorAll('.undo'), function (b) {
       b.onclick = function () {
-        if (!confirm(b.textContent + ':' + b.dataset.u + ' ?')) return;
-        call('undo', { code: b.dataset.u, what: b.dataset.w, desk: DESK }).then(function (x) { renderStats(x.stats); showParty(x.view); }).catch(fail);
+        if (needDesk() || !confirm(b.textContent + ':' + b.dataset.u + ' ?')) return;
+        var t = T[norm(b.dataset.u)];
+        if (b.dataset.w === 'gift') { t.giftAt = ''; t.giftDesk = ''; } else { t.inAt = t.inDesk = t.giftAt = t.giftDesk = ''; }
+        Q.push({ kind: 'undo', opId: uid(), code: t.code, what: b.dataset.w, desk: DESK });
+        saveLocal(); renderStats(); renderSync(); pump(); showParty(pid, '');
       };
     });
     $('doBoth').onclick = function () { run('both'); };
     $('doIn').onclick = function () { run('in'); };
     $('addM').onclick = function () {
       if (needDesk()) return;
-      if (!confirm('確定為 ' + p.id + ' 臨時新增一位同行者?')) return;
-      call('addMember', { party: p.id, desk: DESK }).then(function (x) { renderStats(x.stats); showParty(x.view); toast('已新增 ' + x.view.focus); }).catch(fail);
+      if (!confirm('確定為 ' + pid + ' 臨時新增一位同行者?')) return;
+      google.script.run.withSuccessHandler(function (r) {
+        if (r && r.auth === false) { showLogin(r.error); return; }
+        if (!r || !r.ok) { toast('⚠ ' + ((r && r.error) || '新增失敗')); return; }
+        pullSnapshot(function () { showParty(pid, r.code); toast('已新增 ' + r.code); });
+      }).withFailureHandler(function () { toast('⚠ 目前離線,無法新增。請恢復連線後再試。'); }).api(PIN, 'addMember', { party: pid, desk: DESK });
     };
     updBtns();
   }
@@ -242,27 +352,26 @@
     $('doIn').textContent = '只報到,禮品稍後再發(' + n + ' 人)';
     $('doBoth').disabled = $('doIn').disabled = n === 0;
   }
+
+  /* 按下去立刻生效(先改本機),再排隊送到試算表 */
   function run(mode) {
-    if (needDesk() || busy) return;
+    if (needDesk()) return;
     var codes = picked(); if (!codes.length) return;
-    var p = cur.party;
-    setBusy(true); $('doBoth').disabled = $('doIn').disabled = true;
-    call('process', { codes: codes, mode: mode, desk: DESK }).then(function (r) {
-      setBusy(false); renderStats(r.stats);
-      var ok = r.results.filter(function (x) { return x.status === 'ok'; });
-      var dup = r.results.filter(function (x) { return x.status === 'dup'; });
-      var b = '';
-      if (ok.length) {
-        b += '<div class="banner ok">✔ 完成 ' + ok.length + ' 人' + (mode === 'both' ? '・發放 ' + esc(p.gift || '報到禮') + ' × ' + ok.length : '') +
-          '<small>請引導至「第 ' + esc(p.table || '?') + ' 桌」</small></div>';
-      }
-      if (dup.length) {
-        b += '<div class="banner bad">⚠ ' + dup.length + ' 人先前已處理過:' + dup.map(function (d) { return esc(d.code); }).join('、') +
-          '<small>' + esc(dup[0].inAt) + ',' + esc(dup[0].inDesk) + ' 號報到處。這次沒有重複記錄。</small></div>';
-      }
-      showParty(r.view, b);
-      $('q').focus();
-    }).catch(fail);
+    var pid = cur, p = partyTickets(pid)[0], changed = [], ok = 0, dup = [];
+    codes.forEach(function (c) {
+      var t = T[norm(c)]; if (!t) return;
+      var did = false;
+      if (!t.inAt) { t.inAt = nowStr(); t.inDesk = DESK; did = true; }
+      if (mode === 'both' && !t.giftAt) { t.giftAt = nowStr(); t.giftDesk = DESK; did = true; }
+      if (did) { changed.push(t.code); ok++; } else dup.push(t);
+    });
+    if (changed.length) Q.push({ kind: 'process', opId: uid(), codes: changed, mode: mode, desk: DESK });
+    saveLocal(); renderStats(); renderSync(); pump();
+    var b = '';
+    if (ok) b += '<div class="banner ok">✔ 完成 ' + ok + ' 人' + (mode === 'both' ? '・發放 ' + esc(p.gift || '報到禮') + ' × ' + ok : '') + '<small>請引導至「第 ' + esc(p.table || '?') + ' 桌」</small></div>';
+    if (dup.length) b += '<div class="banner bad">⚠ ' + dup.length + ' 人先前已處理過:' + dup.map(function (d) { return esc(d.code); }).join('、') + '<small>' + esc(dup[0].inAt) + ',' + esc(dup[0].inDesk) + ' 號報到處。這次沒有重複記錄。</small></div>';
+    showParty(pid, '', b);
+    $('q').focus();
   }
 
   /* 相機掃描(若瀏覽器/Apps Script 不允許,會提示改用其他方式) */
@@ -279,6 +388,7 @@
     if (c) { c.stop().then(function () { c.clear(); }).catch(function () {}); }
   }
 
+  window.addEventListener('online', function () { pump(); pullSnapshot(); });
   if (PIN) boot(); else showLogin();
 })();
 </script>

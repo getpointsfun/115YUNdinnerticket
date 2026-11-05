@@ -20,9 +20,10 @@ var TICKET_HEADERS = ['票號', '代號', '姓名', '單位', '類別', '葷素'
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('📋 報到系統')
     .addItem('① 建立分頁(第一次使用)', 'setup')
-    .addItem('② 由回函產生票券', 'menuGenerate')
-    .addItem('③ 儲存報到網址', 'menuSaveUrl')
-    .addItem('④ 查看報到網址與密碼', 'menuInfo')
+    .addItem('② 儲存報到網址(部署後)', 'menuSaveUrl')
+    .addItem('③ 為名單產生兩種 QR(回函 / 報到)', 'menuFillQr')
+    .addItem('④ 由回函產生票券(可重複按)', 'menuGenerate')
+    .addItem('⑤ 查看報到網址與密碼', 'menuInfo')
     .addToUi();
 }
 
@@ -38,6 +39,35 @@ function menuSaveUrl() {
   ss_().getSheetByName(SHEET.SETTINGS).getRange('B2').setValue(url);
   ui.alert('已儲存報到網址:\n' + url +
     (/\/exec$/.test(url) ? '' : '\n\n⚠ 網址結尾不是 /exec,請改貼「部署」後給你的網頁應用程式網址到「設定」分頁 B2。'));
+}
+
+/** 為「名單」每位貴賓產生:回函連結、回函 QR、報到 QR(報到 QR 不需等回函) */
+function menuFillQr() {
+  var ui = SpreadsheetApp.getUi();
+  if (!getSetting_('報到網址')) { ui.alert('「設定」分頁的報到網址還是空的。請先部署網頁並按選單②。'); return; }
+  var sh = ss_().getSheetByName(SHEET.GUESTS);
+  var last = sh.getLastRow();
+  if (last < 2) { ui.alert('「名單」分頁還沒有資料。'); return; }
+  sh.getRange(1, 8, 1, 5).setValues([['回函連結', '回函QR網址', '報到QR網址', '回函QR圖', '報到QR圖']])
+    .setFontWeight('bold').setBackground('#e8eaed');
+  var codes = sh.getRange(2, 1, last - 1, 1).getValues();
+  var S2 = "'" + SHEET.SETTINGS + "'!$B$2", S4 = "'" + SHEET.SETTINGS + "'!$B$4";
+  var Q = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=';
+  var rows = [];
+  codes.forEach(function (c, i) {
+    var r = i + 2;
+    if (String(c[0]).trim() === '') { rows.push(['', '', '', '', '']); return; }
+    rows.push([
+      '=IF(' + S4 + '="","",SUBSTITUTE(' + S4 + ',"{CODE}",$A' + r + '))',
+      '=IF($H' + r + '="","","' + Q + '"&ENCODEURL($H' + r + '))',
+      '=IF(' + S2 + '="","","' + Q + '"&ENCODEURL(' + S2 + '&"?t="&$A' + r + '))',
+      '=IF($I' + r + '="","",IMAGE($I' + r + '))',
+      '=IF($J' + r + '="","",IMAGE($J' + r + '))'
+    ]);
+  });
+  sh.getRange(2, 8, rows.length, 5).setValues(rows);
+  ui.alert('已為 ' + codes.filter(function (c) { return String(c[0]).trim(); }).length + ' 位貴賓產生 QR。\n' +
+    (getSetting_('回函表單預填網址') ? '' : '\n⚠ 「設定」分頁的「回函表單預填網址」還是空的,回函連結/回函 QR 會是空白。'));
 }
 
 function menuInfo() {
@@ -60,6 +90,7 @@ function setup() {
     s.getRange(2, 1, 2, 2).setValues([['報到網址', ''], ['工作人員密碼', String(Math.floor(100000 + Math.random() * 900000))]]);
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
+  if (!getSetting_('回函表單預填網址')) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([['回函表單預填網址', '']]);
   SpreadsheetApp.getUi().alert('分頁已準備好。請在「設定」分頁查看工作人員密碼(可自行修改)。');
 }
 
@@ -192,14 +223,27 @@ function generateTickets_() {
         if (idx >= r.n && existing[ek] > 0) warns.push('票 ' + ek + ' 超出回函人數(' + r.n + '人),請確認是否要手動刪除該列');
       });
     });
+    // 名單上還沒回函的貴賓:先建立本人一張票,手持報到 QR 到場也能報到
+    var noRsvp = 0;
+    Object.keys(guests).forEach(function (k) {
+      if (rsvps[k] || existing[k]) return;
+      rows.push(ticketRow_(guests[k].code, guests[k].code, 0, last + 1 + rows.length, ''));
+      existing[k] = -1; added++; noRsvp++;
+    });
     if (rows.length) sh.getRange(last + 1, 1, rows.length, COLS).setValues(rows);
     SpreadsheetApp.flush();
+    if (noRsvp) warns.unshift('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
       (warns.length ? '\n\n⚠ 注意:\n' + warns.slice(0, 15).join('\n') : '');
   });
 }
 
 /* ───────────── 網頁 ───────────── */
+/*
+ * 速度設計:報到網頁一次載入整份名單(snapshot),掃描/搜尋都在手機本機完成;
+ * 報到、領禮、撤銷在手機上先生效,再排隊送到這裡寫入試算表。
+ * 這裡的工作:提供快照、依序寫入(加鎖)、擋掉重複與重送。
+ */
 
 function doGet(e) {
   var tpl = HtmlService.createTemplateFromFile('index');
@@ -215,8 +259,8 @@ function api(pin, action, arg) {
   if (String(pin == null ? '' : pin).trim() !== expected) return { ok: false, auth: false, error: '密碼錯誤' };
   arg = arg || {};
   switch (action) {
-    case 'ping': return { ok: true, stats: stats_() };
-    case 'find': return find_(arg.q);
+    case 'ping': return { ok: true };
+    case 'snapshot': return snapshot_();
     case 'process': return withLock_(function () { return process_(arg); });
     case 'undo': return withLock_(function () { return undo_(arg); });
     case 'addMember': return withLock_(function () { return addMember_(arg); });
@@ -243,80 +287,60 @@ function readTickets_() {
   return { sh: sh, list: list };
 }
 
+function snapshot_() {
+  var list = readTickets_().list.map(function (t) { delete t.row; return t; });
+  return { ok: true, tickets: list, at: new Date().getTime() };
+}
+
 function suffix_(t) { var m = t.code.match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }
 
-function partyView_(list, party, focus) {
-  var key = norm_(party);
-  var ts = list.filter(function (t) { return norm_(t.party) === key; })
-    .sort(function (a, b) { return suffix_(a) - suffix_(b); })
-    .map(function (t) {
-      return { code: t.code, name: t.name, diet: t.diet, inAt: t.inAt, inDesk: t.inDesk, giftAt: t.giftAt, giftDesk: t.giftDesk };
-    });
-  var head = list.filter(function (t) { return norm_(t.party) === key; })
-    .sort(function (a, b) { return suffix_(a) - suffix_(b); })[0] || {};
-  return {
-    ok: true, mode: 'party', focus: focus || '',
-    party: { id: party, name: head.name || '', org: head.org || '', type: head.type || '',
-      table: head.table || '', gift: head.gift || '', tickets: ts }
-  };
+function seen_(opId) {
+  if (!opId) return false;
+  var c = CacheService.getScriptCache();
+  if (c.get('op:' + opId)) return true;
+  return false;
+}
+function markSeen_(opId) {
+  if (opId) CacheService.getScriptCache().put('op:' + opId, '1', 21600);
 }
 
-function find_(q) {
-  var key = norm_(extractCode_(q));
-  if (!key) return { ok: true, mode: 'none' };
-  var d = readTickets_();
-  var exact = d.list.filter(function (t) { return norm_(t.code) === key; });
-  if (exact.length) return partyView_(d.list, exact[0].party, exact[0].code);
-  var parties = {};
-  d.list.forEach(function (t) {
-    if (norm_(t.code).indexOf(key) >= 0 || norm_(t.name).indexOf(key) >= 0 ||
-        norm_(t.org).indexOf(key) >= 0 || norm_(t.party) === key) parties[norm_(t.party)] = t.party;
-  });
-  var keys = Object.keys(parties);
-  if (!keys.length) return { ok: true, mode: 'none', q: q };
-  if (keys.length === 1) return partyView_(d.list, parties[keys[0]], '');
-  return {
-    ok: true, mode: 'list',
-    items: keys.slice(0, 30).map(function (k) {
-      var v = partyView_(d.list, parties[k], '').party;
-      var done = v.tickets.filter(function (t) { return t.inAt; }).length;
-      return { id: v.id, name: v.name, org: v.org, count: v.tickets.length, done: done };
-    })
-  };
-}
-
-function log_(desk, action, code, result) {
-  ss_().getSheetByName(SHEET.LOG).appendRow([new Date(), desk, action, code, result]);
+function writeLogs_(logs) {
+  if (!logs.length) return;
+  var sh = ss_().getSheetByName(SHEET.LOG);
+  sh.getRange(sh.getLastRow() + 1, 1, logs.length, 5).setValues(logs);
 }
 
 function process_(arg) {
+  if (seen_(arg.opId)) return { ok: true, replay: true, results: [] };
   var d = readTickets_();
   var desk = String(arg.desk || '?');
   var mode = arg.mode === 'in' ? 'in' : 'both';
   var now = new Date();
-  var results = [], party = '';
+  var results = [], logs = [];
   (arg.codes || []).forEach(function (code) {
     var key = norm_(code);
     var t = d.list.filter(function (x) { return norm_(x.code) === key; })[0];
     if (!t) { results.push({ code: code, status: 'notfound' }); return; }
-    party = t.party;
-    var did = [];
-    if (!t.inAt) { d.sh.getRange(t.row, 9, 1, 2).setValues([[now, desk]]); did.push('報到'); }
-    if (mode === 'both' && !t.giftAt) { d.sh.getRange(t.row, 11, 1, 2).setValues([[now, desk]]); did.push('領禮'); }
-    if (did.length) {
+    var needIn = !t.inAt, needGift = mode === 'both' && !t.giftAt;
+    if (needIn && needGift) d.sh.getRange(t.row, 9, 1, 4).setValues([[now, desk, now, desk]]);
+    else if (needIn) d.sh.getRange(t.row, 9, 1, 2).setValues([[now, desk]]);
+    else if (needGift) d.sh.getRange(t.row, 11, 1, 2).setValues([[now, desk]]);
+    if (needIn || needGift) {
+      var did = (needIn ? ['報到'] : []).concat(needGift ? ['領禮'] : []);
       results.push({ code: t.code, status: 'ok', did: did });
-      log_(desk, did.join('+'), t.code, '成功');
+      logs.push([now, desk, did.join('+'), t.code, '成功']);
     } else {
       results.push({ code: t.code, status: 'dup', inAt: t.inAt, inDesk: t.inDesk, giftAt: t.giftAt, giftDesk: t.giftDesk });
-      log_(desk, mode === 'in' ? '報到' : '報到+領禮', t.code, '重複(原 ' + t.inAt + ' 第' + t.inDesk + '處)');
+      logs.push([now, desk, mode === 'in' ? '報到' : '報到+領禮', t.code, '重複(原 ' + t.inAt + ' 第' + t.inDesk + '處)']);
     }
   });
-  SpreadsheetApp.flush();
-  var fresh = readTickets_();
-  return { ok: true, results: results, view: party ? partyView_(fresh.list, party, '') : null, stats: stats_(fresh.list) };
+  writeLogs_(logs);
+  markSeen_(arg.opId);
+  return { ok: true, results: results };
 }
 
 function undo_(arg) {
+  if (seen_(arg.opId)) return { ok: true, replay: true };
   var d = readTickets_();
   var key = norm_(arg.code);
   var t = d.list.filter(function (x) { return norm_(x.code) === key; })[0];
@@ -324,14 +348,13 @@ function undo_(arg) {
   var desk = String(arg.desk || '?');
   if (arg.what === 'gift') {
     d.sh.getRange(t.row, 11, 1, 2).clearContent();
-    log_(desk, '撤銷領禮', t.code, '成功');
+    writeLogs_([[new Date(), desk, '撤銷領禮', t.code, '成功']]);
   } else {
     d.sh.getRange(t.row, 9, 1, 4).clearContent();
-    log_(desk, '撤銷報到', t.code, '成功');
+    writeLogs_([[new Date(), desk, '撤銷報到', t.code, '成功']]);
   }
-  SpreadsheetApp.flush();
-  var fresh = readTickets_();
-  return { ok: true, view: partyView_(fresh.list, t.party, ''), stats: stats_(fresh.list) };
+  markSeen_(arg.opId);
+  return { ok: true };
 }
 
 function addMember_(arg) {
@@ -346,25 +369,6 @@ function addMember_(arg) {
   var r = d.sh.getLastRow() + 1;
   d.sh.getRange(r, 1, 1, COLS).setValues([ticketRow_(party + '-' + idx, party, idx, r, '')]);
   SpreadsheetApp.flush();
-  log_(String(arg.desk || '?'), '現場加人', party + '-' + idx, '成功');
-  var fresh = readTickets_();
-  return { ok: true, view: partyView_(fresh.list, party, party + '-' + idx), stats: stats_(fresh.list) };
-}
-
-function stats_(list) {
-  list = list || readTickets_().list;
-  var s = { total: list.length, in: 0, gift: 0, byDesk: {}, gifts: {}, diets: {} };
-  list.forEach(function (t) {
-    var gt = t.gift || '(未設定)';
-    s.gifts[gt] = s.gifts[gt] || { total: 0, given: 0 };
-    s.gifts[gt].total++;
-    var dt = t.diet || '(未填)';
-    s.diets[dt] = (s.diets[dt] || 0) + 1;
-    if (t.inAt) { s.in++; var a = s.byDesk[t.inDesk] = s.byDesk[t.inDesk] || { in: 0, gift: 0 }; a.in++; }
-    if (t.giftAt) {
-      s.gift++; s.gifts[gt].given++;
-      var b = s.byDesk[t.giftDesk] = s.byDesk[t.giftDesk] || { in: 0, gift: 0 }; b.gift++;
-    }
-  });
-  return s;
+  writeLogs_([[new Date(), String(arg.desk || '?'), '現場加人', party + '-' + idx, '成功']]);
+  return { ok: true, code: party + '-' + idx };
 }

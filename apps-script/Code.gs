@@ -300,10 +300,8 @@ function generateTickets_() {
  * 這裡的工作:提供快照、依序寫入(加鎖)、擋掉重複與重送。
  */
 
-function doGet(e) {
-  var tpl = HtmlService.createTemplateFromFile('index');
-  tpl.initial = JSON.stringify((e && e.parameter && e.parameter.t) || '').replace(/</g, '\\u003c');
-  return tpl.evaluate().setTitle('活動報到系統')
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index').setTitle('活動報到系統')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

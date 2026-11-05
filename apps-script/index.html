@@ -92,7 +92,6 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function () {
-  var INITIAL = <?!= initial ?>;
   var $ = function (id) { return document.getElementById(id); };
   var store = {
     get: function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
@@ -202,6 +201,16 @@
     });
   }
 
+  /* 手機內建相機掃 QR 會開啟「網址?t=票號」,這裡讀出票號(不依賴伺服器端樣板) */
+  function getInitial(cb) {
+    try {
+      google.script.url.getLocation(function (loc) {
+        var t = loc && loc.parameter && loc.parameter.t;
+        cb(t ? String(Array.isArray(t) ? t[0] : t) : '');
+      });
+    } catch (e) { cb(''); }
+  }
+
   /* ───── 登入 / 啟動 ───── */
   function showLogin(msg) {
     $('app').classList.add('hidden'); $('login').classList.remove('hidden');
@@ -222,7 +231,7 @@
         started = true;
         setInterval(function () { pullSnapshot(); }, 8000);
         setInterval(pump, 4000);
-        if (INITIAL) search(INITIAL); else $('q').focus();
+        getInitial(function (t) { if (t) search(t); else $('q').focus(); });
       }
     });
   }

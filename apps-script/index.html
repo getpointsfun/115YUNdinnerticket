@@ -48,7 +48,6 @@
   .actions .btn.main { font-size:24px; padding:18px; background:var(--ok); }
   .list .row { display:flex; justify-content:space-between; align-items:center; padding:14px 6px; border-top:1px solid var(--line); cursor:pointer; }
   .list .row:first-child { border-top:0; }
-  #reader { margin-top:10px; border-radius:12px; overflow:hidden; }
   table { width:100%; border-collapse:collapse; font-size:16px; } td,th { padding:6px 4px; border-top:1px solid var(--line); text-align:left; }
   .link { background:none; border:0; color:var(--pri); font-size:16px; padding:8px 0; }
   #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#111827; color:#fff; padding:12px 18px; border-radius:10px; font-size:17px; z-index:20; max-width:90vw; }
@@ -74,12 +73,10 @@
   </header>
   <main>
     <div class="bar">
-      <input id="q" placeholder="掃 QR,或輸入票號 / 姓名 / 單位" autocomplete="off" autocapitalize="off">
+      <input id="q" placeholder="用掃描器掃 QR,或輸入票號 / 姓名 / 單位" autocomplete="off" autocapitalize="off">
       <button class="btn" id="go">查詢</button>
-      <button class="btn sec" id="cam" title="用相機掃描">📷</button>
     </div>
     <div id="alerts"></div>
-    <div id="reader" class="hidden"></div>
     <div id="banner"></div>
     <div id="result"></div>
     <button class="link" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
@@ -89,7 +86,6 @@
 
 <div id="toast" class="hidden"></div>
 
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -101,7 +97,7 @@
   var T = {};            // 本機名單:票號(小寫) -> 票
   var Q = [];            // 待送出的操作(依序)
   var conflicts = [];    // 事後發現的重複
-  var sending = false, online = true, started = false, cur = '', cam = null, pulling = false;
+  var sending = false, online = true, started = false, cur = '', pulling = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -383,19 +379,22 @@
     $('q').focus();
   }
 
-  /* 相機掃描(若瀏覽器/Apps Script 不允許,會提示改用其他方式) */
-  $('cam').onclick = function () {
-    if (cam) { stopCam(); return; }
-    if (typeof Html5Qrcode === 'undefined') { toast('相機元件載入失敗,請改用手機內建相機掃描,或輸入票號'); return; }
-    $('reader').classList.remove('hidden');
-    cam = new Html5Qrcode('reader');
-    cam.start({ facingMode: 'environment' }, { fps: 10, qrbox: 240 }, function (txt) { stopCam(); search(txt); }, function () {})
-      .catch(function () { stopCam(); toast('這個畫面無法開啟相機。請改用手機內建相機掃 QR(會直接開啟本頁),或用掃描槍/手動輸入'); });
-  };
-  function stopCam() {
-    var c = cam; cam = null; $('reader').classList.add('hidden');
-    if (c) { c.stop().then(function () { c.clear(); }).catch(function () {}); }
-  }
+  /* 掃描器等於「自動打字」:不管游標在哪(例如剛點過勾選框),只要有字打進來,
+     就自動移到輸入框,避免掃描的字被吃掉或誤按到按鈕。 */
+  document.addEventListener('keydown', function (e) {
+    if ($('app').classList.contains('hidden')) return;
+    var a = document.activeElement;
+    if (a && (a.id === 'q' || a.type === 'password')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
+    $('q').focus();
+  }, true);
+  /* 點空白處也回到輸入框,保持隨時可掃 */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if ($('app').classList.contains('hidden')) return;
+    if (t.closest && t.closest('button, input, a, .row')) return;
+    $('q').focus();
+  });
 
   window.addEventListener('online', function () { pump(); pullSnapshot(); });
   if (PIN) boot(); else showLogin();

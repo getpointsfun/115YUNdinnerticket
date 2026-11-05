@@ -44,14 +44,13 @@ function menuSaveUrl() {
 /** 為「名單」每位貴賓產生:回函連結、回函 QR、報到 QR(報到 QR 不需等回函) */
 function menuFillQr() {
   var ui = SpreadsheetApp.getUi();
-  if (!getSetting_('報到網址')) { ui.alert('「設定」分頁的報到網址還是空的。請先部署網頁並按選單②。'); return; }
   var sh = ss_().getSheetByName(SHEET.GUESTS);
   var last = sh.getLastRow();
   if (last < 2) { ui.alert('「名單」分頁還沒有資料。'); return; }
-  sh.getRange(1, 8, 1, 5).setValues([['回函連結', '回函QR網址', '報到QR網址', '回函QR圖', '報到QR圖']])
+  sh.getRange(1, 8, 1, 5).setValues([['回函連結', '回函QR圖片網址', '報到QR圖片網址(純代號)', '回函QR圖', '報到QR圖']])
     .setFontWeight('bold').setBackground('#e8eaed');
   var codes = sh.getRange(2, 1, last - 1, 1).getValues();
-  var S2 = "'" + SHEET.SETTINGS + "'!$B$2", S4 = "'" + SHEET.SETTINGS + "'!$B$4";
+  var S4 = "'" + SHEET.SETTINGS + "'!$B$4";
   var Q = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=';
   var rows = [];
   codes.forEach(function (c, i) {
@@ -60,7 +59,7 @@ function menuFillQr() {
     rows.push([
       '=IF(' + S4 + '="","",SUBSTITUTE(' + S4 + ',"{CODE}",$A' + r + '))',
       '=IF($H' + r + '="","","' + Q + '"&ENCODEURL($H' + r + '))',
-      '=IF(' + S2 + '="","","' + Q + '"&ENCODEURL(' + S2 + '&"?t="&$A' + r + '))',
+      '=IF($A' + r + '="","","' + Q + '"&ENCODEURL($A' + r + '))', // 報到 QR:內容就是代號本身(純代號)
       '=IF($I' + r + '="","",IMAGE($I' + r + '))',
       '=IF($J' + r + '="","",IMAGE($J' + r + '))'
     ]);
@@ -232,8 +231,7 @@ function ticketRow_(code, party, idx, r, diet) {
   var lk = function (c) { return '=IFERROR(VLOOKUP($B' + r + ',' + G + ',' + c + ',FALSE)&"","")'; };
   var name = idx === 0 ? lk(2)
     : '=IFERROR(VLOOKUP($B' + r + ',' + G + ',2,FALSE)&" 的攜伴' + idx + '","")';
-  var S = "'" + SHEET.SETTINGS + "'!$B$2";
-  var qrUrl = '=IF(' + S + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL(' + S + '&"?t="&$A' + r + '))';
+  var qrUrl = '=IF($A' + r + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL($A' + r + '))';
   var qrImg = '=IF($M' + r + '="","",IMAGE($M' + r + '))';
   return [code, party, name, lk(3), lk(4), diet, lk(5), lk(6), '', '', '', '', qrUrl, qrImg];
 }

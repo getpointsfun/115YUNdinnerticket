@@ -50,9 +50,11 @@ text{font-family:inherit;fill:var(--fg);pointer-events:none}
 <p style="margin:0 0 8px;font-size:13px" id="vipText"></p>
 <p style="margin:0 0 8px"><a id="vipLink" class="btn" target="_blank" rel="noopener"></a></p>
 <table id="vipTbl"></table></div>
+<div class="card" style="margin-top:14px"><h2>市集攤位表</h2><table id="stallTbl"></table><p id="stallNote" style="font-size:13px;margin:8px 0 0"></p></div>
 <div class="card" style="margin-top:14px"><h2>分區說明與動線</h2><table id="zones"></table></div>
 </main>
 <script>
+const STALLS=[["A02","AJ CAFE (旭宏咖啡)","2026-YL-001-01"],["A03","土庫驛可可莊園","2026-YL-001-02"],["A04","饅享受","2026-YL-001-03"],["A05","阿國師雲蒸薑母鴨","2026-YL-001-04"],["A06","怪咖咖啡","2026-YL-001-05"],["A07","萬源製麵舖","2026-YL-001-06"],["A08","安記鐵蛋","2026-YL-001-07"],["A09","第一鰻波","2026-YL-001-08"],["A10","小輝俠手工愛玉","2026-YL-001-09"],["A11","草莓小護士手作の屋","2026-YL-001-10"],["A12","勻凱農場","2026-YL-001-11"],["A13","森活手作日和","2026-YL-001-12"],["A15","北京王餡餅","2026-YL-001-13"],["A16","HUNGHUNG 甜點工作室","2026-YL-001-14"],["A18","愛思咖啡","2026-YL-001-15"],["A19","玉山碾米","2026-YL-001-16"],["A20","中華麵そば （嘉味鮮食堂）","2026-YL-001-17"],["A21","食伍手作","2026-YL-001-18"],["A22","鰻囡仔-渲益有限公司","2026-YL-001-19"],["A25","東和泡芙(登記名稱：鼎添食品有限公司)","2026-YL-001-20"],["A27","有點小物工作室","2026-YL-001-21"],["A28","月光下友善農場","2026-YL-001-22"],["A29","坔田渡鳥文化工作室","2026-YL-001-23"],["A45","法黑孚甜點店","2026-YL-001-24"],["A46","奶奶的熊毛巾故事館","2026-YL-001-25"],["A47","天下糧倉食品原料有限公司- 雲林良品尋仙找茶","2026-YL-001-26"],["A48","森森漫","2026-YL-001-27"]];
 const NS="http://www.w3.org/2000/svg",svg=document.getElementById("map");
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function el(tag,a={},txt,p=svg){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e}
@@ -186,7 +188,7 @@ document.getElementById("stats").innerHTML=`<table>
 <tr><td>雨天備案</td><td>接龍帳 30×30 m(900 m²)・${SEATS(tablesB)} 席・6 區自助區</td></tr>
 <tr><td>BUFFET</td><td>8 組(北側 5、南側 3)</td></tr>
 <tr><td>舞台</td><td>8.1×7.2 m(約 58 m²)</td></tr>
-<tr><td>市集區</td><td>沿雲24 鄉道,約 24 攤</td></tr></table>
+<tr><td>市集區</td><td>沿雲24 鄉道,${STALLS.length} 攤(編號 A02–A48)</td></tr></table>
 <p style="font-size:12px;margin:8px 0 0">戶外海灘桌椅每組以 4 人計(企劃書:50 組 = 200 人);帳篷內為五尺圓桌,每桌 10 人(推算,企劃書只標區域人數)。</p>`;
 document.getElementById("zones").innerHTML=`<tr><th>區域</th><th>說明</th></tr>
 <tr><td><span class="sw" style="background:#fff;border:1px solid var(--tblst)"></span>戶外用餐區</td><td>200 人。海灘桌椅組 50 組(每組約 4 人),分佈在池北、池南與西北草地,環繞生態池</td></tr>
@@ -199,6 +201,9 @@ document.getElementById("zones").innerHTML=`<tr><th>區域</th><th>說明</th></
 <tr><td><span class="sw" style="background:#e6e6ee;border:1px solid #6a6a8a"></span>雨天備案</td><td>企劃書方案二:拱型接龍帳 30×30 m 涵蓋舞台頂棚,500 席(五尺圓桌 50 張),左右各 3 區、共 6 區自助區;點上方「方案二」切換</td></tr>
 <tr><td><span class="sw" style="background:var(--pond)"></span>生態池</td><td>既有,禁入;建議設護欄</td></tr>`;
 
+// 市集攤位表(只放攤位編號、店名、登記編號,不放電話住址)
+document.getElementById("stallTbl").innerHTML="<tr><th>攤位</th><th>攤商</th><th>登記編號</th></tr>"+STALLS.map(([a,n,r])=>`<tr><td>${a}</td><td>${n}</td><td>${r}</td></tr>`).join("");
+document.getElementById("stallNote").innerHTML=`共 <b>${STALLS.length}</b> 攤。攤位編號不連續(A01、A14、A17、A23–A24、A26、A30–A44 未列入),是否為預留或空位待主辦確認。`;
 // 邀請人數 vs 容量
 const INVITES=270; // 邀請卡張數;每位受邀者可攜伴 1 人
 const CENTRAL=50;  // 預留給中央長官的席次(另計,不含在邀請卡內——待確認)

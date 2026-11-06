@@ -59,7 +59,7 @@ function menuFillQr() {
     rows.push([
       '=IF(' + S4 + '="","",SUBSTITUTE(' + S4 + ',"{CODE}",$A' + r + '))',
       '=IF($H' + r + '="","","' + Q + '"&ENCODEURL($H' + r + '))',
-      '=IF($A' + r + '="","","' + Q + '"&ENCODEURL($A' + r + '))', // 報到 QR:內容就是代號本身(純代號)
+      '=IF($A' + r + '="","","' + Q + '"&ENCODEURL(UPPER($A' + r + ')))', // 報到 QR:內容就是代號本身,一律大寫(系統不分大小寫)
       '=IF($I' + r + '="","",IMAGE($I' + r + '))',
       '=IF($J' + r + '="","",IMAGE($J' + r + '))'
     ]);
@@ -231,7 +231,7 @@ function ticketRow_(code, party, idx, r, diet) {
   var lk = function (c) { return '=IFERROR(VLOOKUP($B' + r + ',' + G + ',' + c + ',FALSE)&"","")'; };
   var name = idx === 0 ? lk(2)
     : '=IFERROR(VLOOKUP($B' + r + ',' + G + ',2,FALSE)&" 的攜伴' + idx + '","")';
-  var qrUrl = '=IF($A' + r + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL($A' + r + '))';
+  var qrUrl = '=IF($A' + r + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL(UPPER($A' + r + ')))';
   var qrImg = '=IF($M' + r + '="","",IMAGE($M' + r + '))';
   return [code, party, name, lk(3), lk(4), diet, lk(5), lk(6), '', '', '', '', qrUrl, qrImg];
 }

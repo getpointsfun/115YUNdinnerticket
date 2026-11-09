@@ -362,7 +362,10 @@ function doGet(e) {
   var page = (e && e.parameter && e.parameter.page) || '';
   var file = page === 'board' ? 'board' : (page === 'me' ? 'guest' : 'index');
   var title = { board: '貴賓報到看板', guest: '貴賓報到憑證', index: '活動報到系統' }[file];
-  return HtmlService.createHtmlOutputFromFile(file).setTitle(title)
+  var out;
+  try { out = HtmlService.createHtmlOutputFromFile(file); }          // 檔名 board / guest / index
+  catch (err) { out = HtmlService.createHtmlOutputFromFile(file.charAt(0).toUpperCase() + file.slice(1)); }  // 容許首字大寫 Board / Guest
+  return out.setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

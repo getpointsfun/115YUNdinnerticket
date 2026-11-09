@@ -455,7 +455,9 @@ function markSeen_(opId) {
 function writeLogs_(logs) {
   if (!logs.length) return;
   var sh = ss_().getSheetByName(SHEET.LOG);
-  sh.getRange(sh.getLastRow() + 1, 1, logs.length, 5).setValues(logs);
+  var r = sh.getLastRow() + 1;
+  sh.getRange(r, 1, logs.length, 5).setValues(logs);
+  sh.getRange(r, 1, logs.length, 1).setNumberFormat('yyyy/MM/dd HH:mm:ss');
 }
 
 function process_(arg) {

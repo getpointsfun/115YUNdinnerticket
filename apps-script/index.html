@@ -59,21 +59,35 @@
   .actions .btn.main { font-size:24px; padding:18px; background:var(--ok); }
   .list .row { display:flex; justify-content:space-between; align-items:center; padding:14px 6px; border-top:1px solid var(--line); cursor:pointer; }
   .list .row:first-child { border-top:0; }
-  .dash .big { text-align:center; padding:6px 0 10px; }
   .dash .bn { font-size:46px; font-weight:900; line-height:1.1; }
   .dash .bn small { font-size:17px; color:var(--mute); font-weight:600; }
-  .dash .bs { color:var(--mute); margin-top:8px; font-size:16px; } .dash .bs b { color:var(--ink); }
-  .pb { height:12px; background:#e5e7eb; border-radius:99px; overflow:hidden; margin-top:8px; }
-  .pb i { display:block; height:100%; background:linear-gradient(90deg,#38bdf8,#16a34a); border-radius:99px; }
-  .dash h4 { margin:18px 0 6px; font-size:15px; color:var(--mute); letter-spacing:.05em; }
+  .dash h4 { margin:18px 0 8px; font-size:15px; color:var(--mute); letter-spacing:.05em; }
+  .seg { display:flex; gap:6px; justify-content:flex-end; margin-bottom:8px; }
+  .seg button { border:1.5px solid var(--line); background:#fff; border-radius:999px; padding:5px 13px; font-size:14px; font-weight:700; color:var(--mute); }
+  .seg button.on { background:var(--pri); border-color:var(--pri); color:#fff; }
+  .ringbig { text-align:center; } .ringbig svg { max-width:100%; height:auto; }
+  .tiles3 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:6px; }
+  .tiles3 div { background:#f3f4f6; border-radius:14px; padding:12px 6px; text-align:center; }
+  .tiles3 b { display:block; font-size:28px; } .tiles3 span { color:var(--mute); font-size:14px; }
+  .rings { display:grid; grid-template-columns:repeat(3,1fr); gap:12px 8px; }
+  .rg { text-align:center; } .rg svg { max-width:100%; height:auto; } .rg span { display:block; font-size:14px; margin-top:2px; }
+  .tg { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .t1 { background:#f3f4f6; border-radius:16px; padding:12px 14px; }
+  .t1.a { background:#dcfce7; }
+  .t1 span { display:block; font-size:14px; color:var(--mute); } .t1 b { display:block; font-size:34px; line-height:1.15; }
+  .t1 em { font-style:normal; font-size:17px; color:var(--mute); font-weight:600; } .t1 small { color:var(--mute); font-size:13px; }
+  .dots { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0 6px; }
+  .dots i, .lg i { display:inline-block; width:12px; height:12px; border-radius:50%; background:#e5e7eb; }
+  .dots i.g, .lg i.g { background:#16a34a; } .dots i.b, .lg i.b { background:#38bdf8; }
+  .lg { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; color:var(--mute); } .lg i { margin-right:4px; vertical-align:-1px; }
+  .chipsd { display:flex; gap:8px; flex-wrap:wrap; } .cd { background:#f3f4f6; border-radius:999px; padding:6px 12px; font-size:15px; } .cd b { margin-left:4px; }
   .dr { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:7px 0; border-top:1px solid var(--line); align-items:center; }
-  .dr .pb { grid-column:1/3; height:7px; margin-top:2px; }
   .dr b { font-variant-numeric:tabular-nums; }
   .dr.rc { grid-template-columns:auto 1fr auto; }
   .dr .sm { color:var(--mute); font-size:14px; }
   .dg { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:4px; }
   .dg div { background:#f3f4f6; border-radius:12px; padding:10px 4px; text-align:center; }
-  .dg b { display:block; font-size:24px; } .dg span { font-size:13px; color:var(--mute); }
+  .dg b { display:block; font-size:24px; } .dg span { font-size:13px; color:var(--mute); display:block; }
   .fl { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
   .fl button { border:2px solid var(--line); background:#fff; border-radius:999px; padding:6px 12px; font-size:15px; font-weight:700; color:var(--ink); }
   .fl button.on { background:var(--pri); border-color:var(--pri); color:#fff; }
@@ -109,7 +123,7 @@
   </header>
   <main>
     <div class="bar">
-      <input id="q" placeholder="用掃描器掃 QR,或輸入代號 / 姓名 / 單位" autocomplete="off" autocapitalize="off">
+      <input id="q" placeholder="掃描 QR 或輸入代號、姓名" autocomplete="off" autocapitalize="off">
       <button class="btn" id="go">查詢</button>
     </div>
     <div id="alerts"></div>
@@ -325,37 +339,83 @@
   $('boardBtn').onclick = function () { $('board').classList.toggle('hidden'); renderBoard(); };
 
   /* ───── 概況(一打開就看到的數據看板;全部用手機上的資料即時計算) ───── */
-  function pbar(n, total) { return '<div class="pb"><i style="width:' + (total ? Math.round(n * 100 / total) : 0) + '%"></i></div>'; }
+  var DASH_STYLES = [['ring', '圓環'], ['tile', '數字'], ['dots', '點陣']];
+  var dashStyle = store.get('dash') || 'ring';
+  function dashData() {
+    var l = list(), s = computeStats(), byType = {};
+    l.forEach(function (t) { var k = t.type || '未分類'; var o = byType[k] = byType[k] || { n: 0, i: 0, g: 0 }; o.n++; if (t.inAt) o.i++; if (t.giftAt) o.g++; });
+    var types = Object.keys(byType).sort(function (a, b) { return byType[b].n - byType[a].n; });
+    var recent = l.filter(function (t) { return t.inAt; }).sort(function (a, b) { return a.inAt < b.inAt ? 1 : a.inAt > b.inAt ? -1 : 0; }).slice(0, 6);
+    return { l: l, s: s, byType: byType, types: types, recent: recent };
+  }
+  function ringSvg(n, total, size, stroke, color, center, sub) {
+    var r = (size - stroke) / 2, c = 2 * Math.PI * r, p = total ? Math.min(1, n / total) : 0, m = size / 2, big = size > 120;
+    var fs = big ? 40 : (String(center).length > 5 ? 15 : 19);
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" role="img">' +
+      '<circle cx="' + m + '" cy="' + m + '" r="' + r + '" fill="none" stroke="#e5e7eb" stroke-width="' + stroke + '"/>' +
+      (p > 0 ? '<circle cx="' + m + '" cy="' + m + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + stroke + '" stroke-linecap="round" stroke-dasharray="' + (c * p).toFixed(1) + ' ' + c.toFixed(1) + '" transform="rotate(-90 ' + m + ' ' + m + ')"/>' : '') +
+      '<text x="' + m + '" y="' + (sub ? m + (big ? 4 : 2) : m + (big ? 14 : 7)) + '" text-anchor="middle" font-size="' + fs + '" font-weight="900" fill="#111827">' + center + '</text>' +
+      (sub ? '<text x="' + m + '" y="' + (m + (big ? 30 : 17)) + '" text-anchor="middle" font-size="' + (big ? 16 : 11) + '" fill="#6b7280">' + sub + '</text>' : '') + '</svg>';
+  }
+  function dashDesks(s) {
+    return '<h4>各報到處(報到 / 領禮)</h4><div class="dg">' + ['1', '2', '3', '4'].map(function (d) {
+      var o = s.byDesk[d] || { in: 0, gift: 0 }; return '<div><b>' + o.in + '</b><span>' + d + ' 號處</span><span>領禮 ' + o.gift + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function dashDiets(s) {
+    return '<h4>葷素人數</h4><div class="chipsd">' + Object.keys(s.diets).map(function (k) {
+      return '<span class="cd">' + esc(k) + ' <b>' + s.diets[k] + '</b></span>';
+    }).join('') + '</div>';
+  }
+  function dashRecent(d) {
+    return '<h4>最近報到</h4>' + (d.recent.length ? d.recent.map(function (t) {
+      return '<div class="dr rc"><span class="sm">' + esc(String(t.inAt).slice(0, 5)) + '</span><span>' + esc(t.name || t.code) + ' <span class="sm">' + esc(t.code) + '</span></span><span class="sm">' + (t.table ? '第 ' + esc(t.table) + ' 桌' : '') + '</span></div>';
+    }).join('') : '<div class="dr"><span class="sm">還沒有人報到</span></div>');
+  }
+  function dashRing(d) {
+    var s = d.s, pct = Math.round(s.in * 100 / s.total);
+    return '<div class="ringbig">' + ringSvg(s.in, s.total, 200, 18, '#16a34a', pct + '%', s.in + ' / ' + s.total + ' 人') + '</div>' +
+      '<div class="tiles3"><div><b>' + s.in + '</b><span>已報到</span></div><div><b>' + (s.total - s.in) + '</b><span>還沒到</span></div><div><b>' + s.gift + '</b><span>已領禮</span></div></div>' +
+      '<h4>各類別(已到 / 預計)</h4><div class="rings">' + d.types.map(function (k) { var o = d.byType[k];
+        return '<div class="rg">' + ringSvg(o.i, o.n, 88, 9, '#2563eb', o.i + '/' + o.n) + '<span>' + esc(k) + '</span></div>'; }).join('') + '</div>' +
+      '<h4>報到禮(中間是剩餘份數)</h4><div class="rings">' + Object.keys(s.gifts).map(function (k) { var g = s.gifts[k];
+        return '<div class="rg">' + ringSvg(g.given, g.total, 88, 9, '#ec5b7e', String(g.total - g.given), '剩餘') + '<span>🎁 ' + esc(k) + '</span></div>'; }).join('') + '</div>';
+  }
+  function dashTile(d) {
+    var s = d.s, pct = Math.round(s.in * 100 / s.total);
+    return '<div class="tg"><div class="t1 a"><span>已報到</span><b>' + s.in + '</b><small>預計 ' + s.total + ' 人・' + pct + '%</small></div>' +
+      '<div class="t1"><span>還沒到</span><b>' + (s.total - s.in) + '</b><small>人</small></div>' +
+      '<div class="t1"><span>已領禮</span><b>' + s.gift + '</b><small>份</small></div>' +
+      '<div class="t1"><span>報到率</span><b>' + pct + '%</b><small>&nbsp;</small></div></div>' +
+      '<h4>各類別(已到 / 預計)</h4><div class="tg">' + d.types.map(function (k) { var o = d.byType[k];
+        return '<div class="t1"><span>' + esc(k) + '</span><b>' + o.i + '<em> / ' + o.n + '</em></b><small>' + Math.round(o.i * 100 / o.n) + '%</small></div>'; }).join('') + '</div>' +
+      '<h4>報到禮(剩餘 / 總數)</h4><div class="tg">' + Object.keys(s.gifts).map(function (k) { var g = s.gifts[k];
+        return '<div class="t1"><span>🎁 ' + esc(k) + '</span><b>' + (g.total - g.given) + '<em> / ' + g.total + '</em></b><small>已發 ' + g.given + '</small></div>'; }).join('') + '</div>';
+  }
+  function dashDots(d) {
+    var s = d.s, rank = function (t) { return t.inAt && t.giftAt ? 0 : (t.inAt ? 1 : 2); };
+    var dots = d.l.slice().sort(function (a, b) { return rank(a) - rank(b); }).map(function (t) { return '<i class="' + ['g', 'b', 'n'][rank(t)] + '"></i>'; }).join('');
+    return '<div class="bn" style="text-align:center">' + s.in + '<small> / ' + s.total + ' 人已報到</small></div>' +
+      '<div class="dots">' + dots + '</div>' +
+      '<div class="lg"><span><i class="g"></i> 已報到並領禮</span><span><i class="b"></i> 已報到、未領禮</span><span><i class="n"></i> 還沒到</span></div>' +
+      '<h4>各類別(已到 / 預計)</h4><div class="tg">' + d.types.map(function (k) { var o = d.byType[k];
+        return '<div class="t1"><span>' + esc(k) + '</span><b>' + o.i + '<em> / ' + o.n + '</em></b></div>'; }).join('') + '</div>' +
+      '<h4>報到禮(剩餘 / 總數)</h4><div class="tg">' + Object.keys(s.gifts).map(function (k) { var g = s.gifts[k];
+        return '<div class="t1"><span>🎁 ' + esc(k) + '</span><b>' + (g.total - g.given) + '<em> / ' + g.total + '</em></b></div>'; }).join('') + '</div>';
+  }
   function renderDash() {
     dashOn = true; cur = ''; $('banner').innerHTML = '';
-    var l = list(), s = computeStats();
+    var s = computeStats();
     if (!s.total) {
       $('result').innerHTML = '<div class="card dash"><div class="who">目前沒有任何報到名額</div><div class="org" style="margin-top:6px">請先在試算表按選單「④ 由回函產生票券」,或確認網路連線。</div></div>';
       return;
     }
-    var byType = {};
-    l.forEach(function (t) { var k = t.type || '未分類'; var o = byType[k] = byType[k] || { n: 0, i: 0, g: 0 }; o.n++; if (t.inAt) o.i++; if (t.giftAt) o.g++; });
-    var recent = l.filter(function (t) { return t.inAt; }).sort(function (a, b) { return a.inAt < b.inAt ? 1 : a.inAt > b.inAt ? -1 : 0; }).slice(0, 6);
-    var pct = Math.round(s.in * 100 / s.total);
-    var h = '<div class="card dash"><div class="big"><div class="bn">' + s.in + '<small> / ' + s.total + ' 人已報到(' + pct + '%)</small></div>' + pbar(s.in, s.total) +
-      '<div class="bs">已領禮 <b>' + s.gift + '</b>・還沒到 <b>' + (s.total - s.in) + '</b></div></div>';
-    h += '<h4>各類別</h4>' + Object.keys(byType).sort(function (a, b) { return byType[b].n - byType[a].n; }).map(function (k) {
-      var o = byType[k]; return '<div class="dr"><span>' + esc(k) + '</span><span><b>' + o.i + '</b> / ' + o.n + '</span>' + pbar(o.i, o.n) + '</div>';
-    }).join('');
-    h += '<h4>各報到處(報到 / 領禮)</h4><div class="dg">' + ['1', '2', '3', '4'].map(function (d) {
-      var o = s.byDesk[d] || { in: 0, gift: 0 }; return '<div><b>' + o.in + '</b><span>' + d + ' 號處</span><span>領禮 ' + o.gift + '</span></div>';
-    }).join('') + '</div>';
-    h += '<h4>報到禮(剩餘 / 總數)</h4>' + Object.keys(s.gifts).map(function (k) {
-      var g = s.gifts[k]; return '<div class="dr"><span>🎁 ' + esc(k) + '</span><span>剩 <b>' + (g.total - g.given) + '</b> / ' + g.total + '</span>' + pbar(g.given, g.total) + '</div>';
-    }).join('');
-    h += '<h4>葷素人數</h4>' + Object.keys(s.diets).map(function (k) {
-      return '<div class="dr"><span>' + esc(k) + '</span><b>' + s.diets[k] + '</b></div>';
-    }).join('');
-    h += '<h4>最近報到</h4>' + (recent.length ? recent.map(function (t) {
-      return '<div class="dr rc"><span class="sm">' + esc(String(t.inAt).slice(0, 5)) + '</span><span>' + esc(t.name || t.code) + ' <span class="sm">' + esc(t.code) + '</span></span><span class="sm">' + (t.table ? '第 ' + esc(t.table) + ' 桌' : '') + '</span></div>';
-    }).join('') : '<div class="dr"><span class="sm">還沒有人報到</span></div>');
-    h += '<button class="link" id="dRoster">👥 查看誰還沒到(名冊)</button></div>';
-    $('result').innerHTML = h;
+    var d = dashData();
+    var body = dashStyle === 'tile' ? dashTile(d) : (dashStyle === 'dots' ? dashDots(d) : dashRing(d));
+    $('result').innerHTML = '<div class="card dash"><div class="seg">' + DASH_STYLES.map(function (x) {
+      return '<button data-s="' + x[0] + '" class="' + (dashStyle === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+      body + dashDesks(s) + dashDiets(s) + dashRecent(d) + '<button class="link" id="dRoster">👥 查看誰還沒到(名冊)</button></div>';
+    [].forEach.call($('result').querySelectorAll('.seg button'), function (b) { b.onclick = function () { dashStyle = b.dataset.s; store.set('dash', dashStyle); renderDash(); }; });
     $('dRoster').onclick = function () {
       rFilter = 'waiting';
       if ($('roster').classList.contains('hidden')) $('rosterBtn').click(); else renderRoster();

@@ -128,7 +128,7 @@ function setup() {
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
   ensureSheet_(ss, SHEET.MAIL, ['時間', '代號', '姓名', '信箱', '結果']);
-  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊'].forEach(function (nm) {
+  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾'].forEach(function (nm) {
     var v = s.getRange(1, 1, s.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim(); });
     if (v.indexOf(nm) < 0) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([[nm, '']]);
   });
@@ -670,7 +670,7 @@ function mailQrBlob_(code) {
   return null;
 }
 
-function mailContent_(name, code, n, base, contact) {
+function mailContent_(name, code, n, base, contact, hasCard) {
   contact = String(contact || '').trim();
   var C = String(code).toUpperCase();
   var link = (base ? base + (base.indexOf('?') < 0 ? '?' : '&') + 'page=me&c=' + encodeURIComponent(C) : '');
@@ -685,10 +685,13 @@ function mailContent_(name, code, n, base, contact) {
     '<h2 style="margin:0 0 4px;color:#7a3e9d">' + escHtml_(MAIL_EVENT.title) + '</h2>' +
     '<div style="color:#666;margin-bottom:14px">貴賓電子報到憑證</div>' +
     '<p>' + escHtml_(name) + ' 貴賓 您好:<br>感謝您回覆出席。以下是您的報到憑證,活動當天請出示。</p>' +
-    '<div style="border:1px solid #ddd;border-radius:12px;padding:16px;text-align:center">' +
-    '<img src="cid:qr" alt="報到 QR Code" width="240" height="240" style="display:block;margin:0 auto 8px">' +
-    '<div style="font-size:26px;font-weight:800;letter-spacing:3px">' + escHtml_(C) + '</div>' +
-    '<div style="color:#666;margin-top:4px">' + escHtml_(people) + '</div></div>' +
+    (hasCard
+      ? '<div style="text-align:center"><img src="cid:card" alt="貴賓報到憑證" width="360" style="display:block;margin:0 auto;max-width:100%;height:auto;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.25)">' +
+        '<div style="color:#666;margin-top:8px">代號 ' + escHtml_(C) + '・' + escHtml_(people) + '</div></div>'
+      : '<div style="border:1px solid #ddd;border-radius:12px;padding:16px;text-align:center">' +
+        '<img src="cid:qr" alt="報到 QR Code" width="240" height="240" style="display:block;margin:0 auto 8px">' +
+        '<div style="font-size:26px;font-weight:800;letter-spacing:3px">' + escHtml_(C) + '</div>' +
+        '<div style="color:#666;margin-top:4px">' + escHtml_(people) + '</div></div>') +
     '<p style="margin-top:14px"><b>時間</b>:' + escHtml_(MAIL_EVENT.when) + '<br><b>地點</b>:' + escHtml_(MAIL_EVENT.where) + '</p>' +
     '<p>請於報到處出示此 QR Code(手機畫面或列印皆可),或紙本「貴賓報到憑證」,掃描後即可入席並領取報到禮。<b>同行貴賓共用一張憑證,請勿轉傳。</b></p>' +
     (link ? '<p style="font-size:13px;color:#666">圖片沒有顯示?<a href="' + escHtml_(link) + '">開啟我的電子憑證</a>(需輸入姓名)</p>' : '') +
@@ -706,17 +709,40 @@ function mailFromProblem_() {
   return '';
 }
 
+/** 「設定」的「憑證圖片資料夾」(Drive 資料夾網址或代號)裡,檔名 VIP001.jpg 這類的貴賓憑證圖。找不到就回 null(改用純 QR) */
+function mailCardBlob_(code) {
+  var v = getSetting_('憑證圖片資料夾');
+  if (!v) return null;
+  try {
+    var m = v.match(/folders\/([a-zA-Z0-9_-]+)/) || v.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    var folder = DriveApp.getFolderById(m ? m[1] : v);
+    var C = String(code).toUpperCase(), exts = ['.jpg', '.jpeg', '.png'];
+    for (var i = 0; i < exts.length; i++) {
+      var it = folder.getFilesByName(C + exts[i]);
+      if (it.hasNext()) return it.next().getBlob();
+    }
+  } catch (e) {}
+  return null;
+}
+
 function mailSendOne_(to, name, code, n) {
   var bad = mailFromProblem_();
   if (bad) throw new Error(bad);
-  var c = mailContent_(name, code, n, getSetting_('報到網址'), getSetting_('信件聯絡資訊'));
+  var card = mailCardBlob_(code);
+  var c = mailContent_(name, code, n, getSetting_('報到網址'), getSetting_('信件聯絡資訊'), !!card);
   var opt = { name: getSetting_('寄件人名稱') || MAIL_FROM_DEFAULT, htmlBody: c.html };
   var want = getSetting_('寄件信箱');
   if (validEmail_(want)) opt.replyTo = want;   // 貴賓按「回覆」會回到這個信箱
-  var qr = mailQrBlob_(code);
-  if (qr) opt.inlineImages = { qr: qr };
+  var qr = null;
+  if (card) {
+    opt.inlineImages = { card: card.copyBlob().setName(String(code).toUpperCase() + '-card') };
+    opt.attachments = [card.copyBlob().setName('報到憑證-' + String(code).toUpperCase() + (/png/i.test(card.getContentType()) ? '.png' : '.jpg'))];   // 附一份原圖,方便存檔或列印
+  } else {
+    qr = mailQrBlob_(code);
+    if (qr) opt.inlineImages = { qr: qr };
+  }
   MailApp.sendEmail(to, c.subject, c.text, opt);
-  return !!qr;
+  return !!(card || qr);
 }
 
 /** 寄出所有「還沒寄」的人。回傳文字摘要。 */

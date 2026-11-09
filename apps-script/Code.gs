@@ -329,6 +329,7 @@ function api(pin, action, arg) {
     case 'process': return withLock_(function () { return process_(arg); });
     case 'undo': return withLock_(function () { return undo_(arg); });
     case 'addMember': return withLock_(function () { return addMember_(arg); });
+    case 'setDiet': return withLock_(function () { return setDiet_(arg); });
     default: return { ok: false, error: '未知操作' };
   }
 }
@@ -504,6 +505,20 @@ function undo_(arg) {
   return { ok: true };
 }
 
+/** 補填或修改某位的葷素(報到時現場詢問) */
+function setDiet_(arg) {
+  if (seen_(arg.opId)) return { ok: true, replay: true };
+  var d = readTickets_();
+  var key = norm_(arg.code);
+  var t = d.list.filter(function (x) { return norm_(x.code) === key; })[0];
+  if (!t) return { ok: false, error: '找不到 ' + arg.code };
+  var diet = String(arg.diet == null ? '' : arg.diet).slice(0, 60);
+  d.sh.getRange(t.row, 6).setValue(diet);
+  writeLogs_([[new Date(), String(arg.desk || '?'), '修改葷素', t.code, diet || '(清空)']]);
+  markSeen_(arg.opId);
+  return { ok: true };
+}
+
 function addMember_(arg) {
   var d = readTickets_();
   var key = norm_(arg.party);
@@ -514,7 +529,7 @@ function addMember_(arg) {
   var idx = max + 1;
   var party = mine[0].party;
   var r = d.sh.getLastRow() + 1;
-  d.sh.getRange(r, 1, 1, COLS).setValues([ticketRow_(party + '-' + idx, party, idx, r, '')]);
+  d.sh.getRange(r, 1, 1, COLS).setValues([ticketRow_(party + '-' + idx, party, idx, r, String(arg.diet == null ? '' : arg.diet).slice(0, 60))]);
   SpreadsheetApp.flush();
   writeLogs_([[new Date(), String(arg.desk || '?'), '現場加人', party + '-' + idx, '成功']]);
   return { ok: true, code: party + '-' + idx };

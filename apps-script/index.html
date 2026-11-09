@@ -42,6 +42,17 @@
   .t .nm { font-weight:700; }
   .t .st { font-size:15px; margin-top:2px; }
   .st.done { color:var(--ok); } .st.part { color:var(--warn); } .st.none { color:var(--mute); }
+  .dd { cursor:pointer; padding:6px 12px !important; font-size:15px !important; margin-left:8px !important; }
+  .dd.empty { background:var(--warnbg); color:var(--warn); font-weight:700; }
+  #dietDlg { position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:40; display:flex; align-items:flex-end; justify-content:center; }
+  #dietDlg .box { background:#fff; width:100%; max-width:520px; border-radius:18px 18px 0 0; padding:18px 16px 22px; }
+  #dietDlg h3 { margin:0 0 12px; font-size:20px; }
+  #dietDlg .opts { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  #dietDlg .opts button { padding:16px; font-size:20px; font-weight:800; border-radius:12px; border:2px solid var(--line); background:#fff; }
+  #dietDlg .opts button.p { background:var(--pri); border-color:var(--pri); color:#fff; }
+  #dietDlg input { width:100%; font-size:20px; padding:12px; border:2px solid var(--line); border-radius:12px; margin-top:10px; }
+  #dietDlg .row { display:flex; gap:10px; margin-top:12px; }
+  #dietDlg .row button { flex:1; padding:13px; font-size:18px; border-radius:12px; border:2px solid var(--line); background:#fff; font-weight:700; }
   .diet { font-size:14px; background:#f3f4f6; border-radius:6px; padding:1px 7px; margin-left:6px; font-weight:500; }
   .undo { border:1px solid var(--line); background:#fff; border-radius:8px; padding:6px 10px; font-size:14px; color:var(--mute); }
   .actions { display:grid; gap:10px; margin-top:14px; }
@@ -94,6 +105,18 @@
     <button class="link" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
     <div id="board" class="card hidden"></div>
   </main>
+</div>
+
+<div id="dietDlg" class="hidden">
+  <div class="box">
+    <h3 id="dietTitle">葷素?</h3>
+    <div class="opts">
+      <button id="dMeat">葷食</button><button id="dVeg">素食</button>
+      <button id="dOther">其他…</button><button id="dSkip">先不填</button>
+    </div>
+    <div id="dOtherBox" class="hidden"><input id="dOtherIn" placeholder="例如:不吃牛肉、海鮮過敏" autocomplete="off"><div class="row"><button id="dOtherOk" class="p" style="background:var(--pri);border-color:var(--pri);color:#fff">確定</button></div></div>
+    <div class="row"><button id="dCancel">取消</button></div>
+  </div>
 </div>
 
 <div id="toast" class="hidden"></div>
@@ -328,7 +351,7 @@
     ts.forEach(function (t) {
       var done = t.inAt && t.giftAt;
       h += '<div class="t"><input type="checkbox" data-c="' + esc(t.code) + '"' + (done ? '' : ' checked') + '>' +
-        '<div class="info"><div class="nm">' + esc(t.name || t.code) + (t.diet ? '<span class="diet">' + esc(t.diet) + '</span>' : '') + '</div>' +
+        '<div class="info"><div class="nm">' + esc(t.name || t.code) + '<span class="diet dd' + (t.diet ? '' : ' empty') + '" data-dd="' + esc(t.code) + '">' + (t.diet ? esc(t.diet) : '＋填葷素') + '</span>' + '</div>' +
         '<div class="st">' + esc(t.code) + '・' + stText(t) + '</div></div>' +
         (t.inAt ? '<button class="undo" data-u="' + esc(t.code) + '" data-w="' + (t.giftAt ? 'gift' : 'in') + '">' + (t.giftAt ? '撤銷領禮' : '撤銷報到') + '</button>' : '') + '</div>';
     });
@@ -351,18 +374,49 @@
         saveLocal(); renderStats(); renderSync(); pump(); showParty(pid, '');
       };
     });
+    [].forEach.call(document.querySelectorAll('.dd'), function (b) {
+      b.onclick = function () {
+        if (needDesk()) return;
+        var code = b.dataset.dd;
+        askDiet(code + ' 的葷素', false, function (d) { setDiet(code, d, pid); });
+      };
+    });
     $('doBoth').onclick = function () { run('both'); };
     $('doIn').onclick = function () { run('in'); };
     $('addM').onclick = function () {
       if (needDesk()) return;
-      if (!confirm('確定為 ' + pid + ' 臨時新增一位同行者?')) return;
-      google.script.run.withSuccessHandler(function (r) {
-        if (r && r.auth === false) { showLogin(r.error); return; }
-        if (!r || !r.ok) { toast('⚠ ' + ((r && r.error) || '新增失敗')); return; }
-        pullSnapshot(function () { showParty(pid, r.code); toast('已新增 ' + r.code); });
-      }).withFailureHandler(function () { toast('⚠ 目前離線,無法新增。請恢復連線後再試。'); }).api(PIN, 'addMember', { party: pid, desk: DESK });
+      askDiet('臨時新增 ' + pid + ' 的同行者:葷素?', true, function (diet) {
+        google.script.run.withSuccessHandler(function (r) {
+          if (r && r.auth === false) { showLogin(r.error); return; }
+          if (!r || !r.ok) { toast('⚠ ' + ((r && r.error) || '新增失敗')); return; }
+          pulling = false;
+          pullSnapshot(function () { showParty(pid, r.code); toast('已新增 ' + r.code); });
+        }).withFailureHandler(function () { toast('⚠ 目前離線,無法新增。請恢復連線後再試。'); }).api(PIN, 'addMember', { party: pid, desk: DESK, diet: diet });
+      });
     };
     updBtns();
+  }
+  /* 葷素選擇視窗:cb(字串);'' 代表「先不填」;取消不會呼叫 cb */
+  var dietCb = null;
+  function askDiet(title, allowSkip, cb) {
+    dietCb = cb; $('dietTitle').textContent = title;
+    $('dOtherBox').classList.add('hidden'); $('dOtherIn').value = '';
+    $('dSkip').classList.toggle('hidden', !allowSkip);
+    $('dietDlg').classList.remove('hidden');
+  }
+  function dietDone(v) { $('dietDlg').classList.add('hidden'); var f = dietCb; dietCb = null; if (f && v !== null) f(v); }
+  $('dMeat').onclick = function () { dietDone('葷食'); };
+  $('dVeg').onclick = function () { dietDone('素食'); };
+  $('dSkip').onclick = function () { dietDone(''); };
+  $('dCancel').onclick = function () { dietDone(null); };
+  $('dOther').onclick = function () { $('dOtherBox').classList.remove('hidden'); $('dOtherIn').focus(); };
+  $('dOtherOk').onclick = function () { var v = $('dOtherIn').value.trim(); if (v) dietDone('其他:' + v); };
+  $('dOtherIn').onkeydown = function (e) { if (e.key === 'Enter') $('dOtherOk').click(); };
+  function setDiet(code, diet, pid) {
+    var t = T[norm(code)]; if (!t) return;
+    t.diet = diet;
+    Q.push({ kind: 'setDiet', opId: uid(), code: t.code, diet: diet, desk: DESK });
+    saveLocal(); renderStats(); renderSync(); pump(); showParty(pid, '');
   }
   function picked() { return [].filter.call(document.querySelectorAll('.t input'), function (c) { return c.checked; }).map(function (c) { return c.dataset.c; }); }
   function updBtns() {
@@ -398,7 +452,7 @@
   document.addEventListener('keydown', function (e) {
     if ($('app').classList.contains('hidden')) return;
     var a = document.activeElement;
-    if (a && (a.id === 'q' || a.type === 'password')) return;
+    if (a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && a.type !== 'checkbox' && a.type !== 'radio'))) return;  // 正在文字框打字(輸入框、名冊搜尋、葷素)就不要搶
     if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
     $('q').focus();
   }, true);
@@ -406,7 +460,7 @@
   document.addEventListener('click', function (e) {
     var t = e.target;
     if ($('app').classList.contains('hidden')) return;
-    if (t.closest && t.closest('button, input, a, .row')) return;
+    if (t.closest && t.closest('button, input, a, .row, #dietDlg, #roster')) return;
     $('q').focus();
   });
 

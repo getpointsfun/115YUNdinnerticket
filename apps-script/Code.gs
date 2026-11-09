@@ -24,6 +24,7 @@ function onOpen() {
     .addItem('③ 為名單產生兩種 QR(回函 / 報到)', 'menuFillQr')
     .addItem('④ 由回函產生票券(可重複按)', 'menuGenerate')
     .addItem('⑤ 查看報到網址與密碼', 'menuInfo')
+    .addItem('⑥ 檢查回函連線(不會產生票券)', 'menuCheckRsvp')
     .addToUi();
 }
 
@@ -67,6 +68,31 @@ function menuFillQr() {
   sh.getRange(2, 8, rows.length, 5).setValues(rows);
   ui.alert('已為 ' + codes.filter(function (c) { return String(c[0]).trim(); }).length + ' 位貴賓產生 QR。\n' +
     (getSetting_('回函表單預填網址') ? '' : '\n⚠ 「設定」分頁的「回函表單預填網址」還是空的,回函連結/回函 QR 會是空白。'));
+}
+
+/** 檢查有沒有連到回函,並顯示讀到的回函概況。只讀取,不會產生任何票券。 */
+function menuCheckRsvp() {
+  var ui = SpreadsheetApp.getUi();
+  var src = getSetting_('回函來源試算表');
+  try {
+    var guests = readGuests_();
+    var rs = readRsvps_(guests);
+    var keys = Object.keys(rs.map), yes = 0, people = 0, no = 0;
+    keys.forEach(function (k) { var r = rs.map[k]; if (r.n > 0) { yes++; people += r.n; } else no++; });
+    var total = Object.keys(guests.byCode).length;
+    ui.alert('✅ 回函連線正常\n' +
+      '回函來源:' + (src ? '另一份試算表(設定 B5)' : '本試算表的「回函」分頁') + '\n\n' +
+      '名單:' + total + ' 位\n' +
+      '已回函(對得上名單):' + keys.length + ' 位\n' +
+      '　出席 ' + yes + ' 位,預計共 ' + people + ' 人\n' +
+      '　不克出席 ' + no + ' 位\n' +
+      '尚未回函:' + (total - keys.length) + ' 位' +
+      (keys.length === 0 && !rs.unmatched.length ? '\n\n(目前回函裡還沒有資料,或還沒有人填寫。)' : '') +
+      (rs.unmatched.length ? '\n\n⚠ 回函裡有 ' + rs.unmatched.length + ' 個姓名在名單找不到:\n' + rs.unmatched.slice(0, 20).join('、') : ''));
+  } catch (e) {
+    ui.alert('❌ 讀不到回函資料\n\n' + (e && e.message ? e.message : e) +
+      '\n\n請檢查:\n1.「設定」分頁 B5 的回函試算表網址是否正確\n2. 你的 Google 帳號是否能開啟那份試算表\n3. 那份試算表的表頭是否有「姓名」「攜伴人數」');
+  }
 }
 
 function menuInfo() {

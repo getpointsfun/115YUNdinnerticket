@@ -9,7 +9,7 @@
  *   紀錄  — 每次報到/領禮/撤銷的流水帳
  */
 
-var SHEET = { GUESTS: '名單', RSVP: '回函', TICKETS: '票券', SETTINGS: '設定', LOG: '紀錄' };
+var SHEET = { GUESTS: '名單', PUBLIC: '民眾', RSVP: '回函', TICKETS: '票券', SETTINGS: '設定', LOG: '紀錄' };
 var MAX_PARTY = 4; // 本人 + 最多 3 位攜伴
 var COLS = 14;
 var TICKET_HEADERS = ['票號', '代號', '姓名', '單位', '類別', '葷素', '桌次', '報到禮',
@@ -79,10 +79,12 @@ function menuCheckRsvp() {
     var rs = readRsvps_(guests);
     var keys = Object.keys(rs.map), yes = 0, people = 0, no = 0;
     keys.forEach(function (k) { var r = rs.map[k]; if (r.n > 0) { yes++; people += r.n; } else no++; });
-    var total = Object.keys(guests.byCode).length;
+    var total = 0, pub = 0;
+    Object.keys(guests.byCode).forEach(function (k) { if (guests.byCode[k].kind === '民眾') pub++; else total++; });
     ui.alert('✅ 回函連線正常\n' +
       '回函來源:' + (src ? '另一份試算表(設定 B5)' : '本試算表的「回函」分頁') + '\n\n' +
-      '名單:' + total + ' 位\n' +
+      '名單(貴賓):' + total + ' 位\n' +
+      '民眾(「民眾」工作表已填姓名):' + pub + ' 位\n' +
       '已回函(對得上名單):' + keys.length + ' 位\n' +
       '　出席 ' + yes + ' 位,預計共 ' + people + ' 人\n' +
       '　不克出席 ' + no + ' 位\n' +
@@ -110,6 +112,7 @@ function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   PropertiesService.getScriptProperties().setProperty('SSID', ss.getId());
   ensureSheet_(ss, SHEET.GUESTS, ['代號', '姓名', '單位', '類別', '桌次', '報到禮', '備註']);
+  ensureSheet_(ss, SHEET.PUBLIC, ['代號', '姓名', '單位', '類別', '桌次', '報到禮', '備註', '狀態']);
   ensureSheet_(ss, SHEET.RSVP, ['時間戳記', '代號', '是否出席', '出席人數', '本人葷素', '攜伴1葷素', '攜伴2葷素', '攜伴3葷素']);
   var t = ensureSheet_(ss, SHEET.TICKETS, TICKET_HEADERS);
   t.getRange('I:I').setNumberFormat('MM/dd HH:mm:ss');
@@ -176,17 +179,27 @@ function nameKey_(s) {
 }
 
 function readGuests_() {
-  var sh = ss_().getSheetByName(SHEET.GUESTS);
   var out = { byCode: {}, byName: {} };
-  if (!sh || sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
-    var c = String(r[0]).trim();
-    if (!c) return;
-    var g = { code: c, name: String(r[1]).trim(), org: String(r[2]).trim(), type: String(r[3]).trim(), table: String(r[4]).trim() };
-    out.byCode[norm_(c)] = g;
-    var nk = nameKey_(g.name);
-    if (nk) (out.byName[nk] = out.byName[nk] || []).push(g);
-  });
+  var sh = ss_().getSheetByName(SHEET.GUESTS);
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
+      var c = String(r[0]).trim();
+      if (!c) return;
+      var g = { code: c, name: String(r[1]).trim(), org: String(r[2]).trim(), type: String(r[3]).trim(), table: String(r[4]).trim(), kind: '貴賓' };
+      out.byCode[norm_(c)] = g;
+      var nk = nameKey_(g.name);
+      if (nk) (out.byName[nk] = out.byName[nk] || []).push(g);   // 只有「名單」的人,才會拿來比對回函姓名
+    });
+  }
+  // 「民眾」工作表:每列一個預先產生的 QR;「姓名」有填才算啟用。民眾不需回函,一個 QR 一個人。
+  var ps = ss_().getSheetByName(SHEET.PUBLIC);
+  if (ps && ps.getLastRow() >= 2) {
+    ps.getRange(2, 1, ps.getLastRow() - 1, 5).getValues().forEach(function (r) {
+      var c = String(r[0]).trim(), nm = String(r[1]).trim();
+      if (!c || !nm || out.byCode[norm_(c)]) return;
+      out.byCode[norm_(c)] = { code: c, name: nm, org: String(r[2]).trim(), type: String(r[3]).trim() || '民眾', table: String(r[4]).trim(), kind: '民眾' };
+    });
+  }
   return out;
 }
 
@@ -257,10 +270,12 @@ function readRsvps_(guests) {
 }
 
 function ticketRow_(code, party, idx, r, diet) {
-  var G = "'" + SHEET.GUESTS + "'!$A:$G";
-  var lk = function (c) { return '=IFERROR(VLOOKUP($B' + r + ',' + G + ',' + c + ',FALSE)&"","")'; };
-  var name = idx === 0 ? lk(2)
-    : '=IFERROR(VLOOKUP($B' + r + ',' + G + ',2,FALSE)&" 的攜伴' + idx + '","")';
+  var G = "'" + SHEET.GUESTS + "'!$A:$G", P = "'" + SHEET.PUBLIC + "'!$A:$G";
+  var look = function (c, suffix) {   // 先找「名單」,找不到再找「民眾」
+    return 'IFERROR(VLOOKUP($B' + r + ',' + G + ',' + c + ',FALSE)&"' + suffix + '",IFERROR(VLOOKUP($B' + r + ',' + P + ',' + c + ',FALSE)&"' + suffix + '",""))';
+  };
+  var lk = function (c) { return '=' + look(c, ''); };
+  var name = idx === 0 ? lk(2) : '=' + look(2, ' 的攜伴' + idx);
   var qrUrl = '=IF($A' + r + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL(UPPER($A' + r + ')))';
   var qrImg = '=IF($M' + r + '="","",IMAGE($M' + r + '))';
   return [code, party, name, lk(3), lk(4), diet, lk(5), lk(6), '', '', '', '', qrUrl, qrImg];
@@ -303,12 +318,13 @@ function generateTickets_() {
       });
     });
     // 名單上還沒回函的貴賓:先建立本人一張票,手持報到 QR 到場也能報到
-    var noRsvp = 0;
+    var noRsvp = 0, pubAdded = 0;
     Object.keys(guests.byCode).forEach(function (k) {
       if (rsvps[k] || existing[k]) return;
-      var gc = guests.byCode[k].code;
+      var g = guests.byCode[k], gc = g.code;
       rows.push(ticketRow_(gc, gc, 0, last + 1 + rows.length, ''));
-      existing[k] = -1; added++; noRsvp++;
+      existing[k] = -1; added++;
+      if (g.kind === '民眾') pubAdded++; else noRsvp++;
     });
     if (rows.length) sh.getRange(last + 1, 1, rows.length, COLS).setValues(rows);
     SpreadsheetApp.flush();
@@ -317,6 +333,7 @@ function generateTickets_() {
     });
     if (noRsvp) warns.push('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
+      (pubAdded ? '\n其中民眾 ' + pubAdded + ' 位(「民眾」工作表中已填姓名的)。' : '') +
       (warns.length ? '\n\n⚠ 注意(共 ' + warns.length + ' 項):\n' + warns.slice(0, 20).join('\n') : '');
   });
 }
@@ -461,7 +478,7 @@ function roster_() {
   var rows = Object.keys(guests.byCode).map(function (k) {
     var g = guests.byCode[k], r = rs.map[k];
     return { code: g.code, name: g.name, org: g.org, type: g.type, table: g.table,
-      rsvp: r ? (r.n > 0 ? 'yes' : 'no') : 'none' };
+      rsvp: g.kind === '民眾' ? 'yes' : (r ? (r.n > 0 ? 'yes' : 'no') : 'none') };
   });
   return { ok: true, rows: rows, unmatched: rs.unmatched, rsvpError: rsvpError };
 }

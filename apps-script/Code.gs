@@ -246,6 +246,7 @@ function readRsvps_(guests) {
     }
     return first;
   };
+  var cNote = col(function (h) { return h === '備註' || h.indexOf('過敏') >= 0 || h.indexOf('禁忌') >= 0; });
   var cDiet = [col(has('本人')), col(has('攜伴1')), col(has('攜伴2')), col(has('攜伴3'))];
   if ((cCode < 0 && cName < 0) || (cComp < 0 && cTotal < 0)) {
     throw new Error('回函的表頭需要有「姓名」(或「代號」),以及「攜伴人數」(或「出席人數」)。目前表頭:' + head.join('、'));
@@ -280,6 +281,7 @@ function readRsvps_(guests) {
     n = Math.max(0, Math.min(n, MAX_PARTY));
     out.map[norm_(g.code)] = { // 同一人回函多次,以最後一筆為準
       code: g.code, n: n, name: g.name,
+      note: cNote >= 0 && !/^(無|沒有|没有|none|n\/a|-)?$/i.test(String(row[cNote]).trim()) ? String(row[cNote]).trim().replace(/\s+/g, ' ').slice(0, 40) : '',
       email: pickMail(row),
       diets: cDiet.map(function (c) { var v = c >= 0 ? String(row[c]).trim() : ''; return v === '無' ? '' : v; })   // 方格題選「無」= 沒有這位
     };
@@ -329,6 +331,7 @@ function generateTickets_() {
       for (var i = 0; i < r.n; i++) {
         var code = i === 0 ? party : party + '-' + i;
         var diet = r.diets[i] || '';
+        if (i === 0 && r.note) diet = (diet ? diet + ' ' : '') + '(備註:' + r.note + ')';   // 過敏原/禁忌等備註掛在本人的葷素後面,報到畫面看得到
         var row = existing[norm_(code)];
         if (row) {
           if (diet) sh.getRange(row, 6).setValue(diet);

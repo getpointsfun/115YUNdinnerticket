@@ -59,6 +59,21 @@
   .actions .btn.main { font-size:24px; padding:18px; background:var(--ok); }
   .list .row { display:flex; justify-content:space-between; align-items:center; padding:14px 6px; border-top:1px solid var(--line); cursor:pointer; }
   .list .row:first-child { border-top:0; }
+  .dash .big { text-align:center; padding:6px 0 10px; }
+  .dash .bn { font-size:46px; font-weight:900; line-height:1.1; }
+  .dash .bn small { font-size:17px; color:var(--mute); font-weight:600; }
+  .dash .bs { color:var(--mute); margin-top:8px; font-size:16px; } .dash .bs b { color:var(--ink); }
+  .pb { height:12px; background:#e5e7eb; border-radius:99px; overflow:hidden; margin-top:8px; }
+  .pb i { display:block; height:100%; background:linear-gradient(90deg,#38bdf8,#16a34a); border-radius:99px; }
+  .dash h4 { margin:18px 0 6px; font-size:15px; color:var(--mute); letter-spacing:.05em; }
+  .dr { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:7px 0; border-top:1px solid var(--line); align-items:center; }
+  .dr .pb { grid-column:1/3; height:7px; margin-top:2px; }
+  .dr b { font-variant-numeric:tabular-nums; }
+  .dr.rc { grid-template-columns:auto 1fr auto; }
+  .dr .sm { color:var(--mute); font-size:14px; }
+  .dg { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:4px; }
+  .dg div { background:#f3f4f6; border-radius:12px; padding:10px 4px; text-align:center; }
+  .dg b { display:block; font-size:24px; } .dg span { font-size:13px; color:var(--mute); }
   .fl { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
   .fl button { border:2px solid var(--line); background:#fff; border-radius:999px; padding:6px 12px; font-size:15px; font-weight:700; color:var(--ink); }
   .fl button.on { background:var(--pri); border-color:var(--pri); color:#fff; }
@@ -100,9 +115,10 @@
     <div id="alerts"></div>
     <div id="banner"></div>
     <div id="result"></div>
+    <button class="link" id="dashBtn">🏠 概況</button>
     <button class="link" id="rosterBtn">👥 名冊(誰到了、誰還沒到)</button>
     <div id="roster" class="card hidden"></div>
-    <button class="link" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
+    <button class="link hidden" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
     <div id="board" class="card hidden"></div>
   </main>
 </div>
@@ -132,7 +148,7 @@
   var T = {};            // 本機名單:票號(小寫) -> 票
   var Q = [];            // 待送出的操作(依序)
   var conflicts = [];    // 事後發現的重複
-  var lastErr = '', sending = false, online = true, started = false, cur = '', pulling = false;
+  var dashOn = false, lastErr = '', sending = false, online = true, started = false, cur = '', pulling = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -185,6 +201,7 @@
     var pend = pendingCodes(), n = {};
     arr.forEach(function (t) { var k = norm(t.code); n[k] = (pend[k] && T[k]) ? T[k] : t; });
     T = n; saveLocal(); renderStats();
+    if (dashOn) renderDash();
     if (!$('roster').classList.contains('hidden')) renderRoster();
   }
   function pullSnapshot(cb) {
@@ -259,6 +276,7 @@
       if (!ok && !Object.keys(T).length) { showLogin('連線失敗,且這台裝置還沒有暫存名單。請確認網路後再試。'); return; }
       $('login').classList.add('hidden'); $('app').classList.remove('hidden');
       drawDesks(); renderStats(); renderSync(); pump();
+      if (!started) renderDash();
       if (!ok) toast('目前離線,使用這台裝置上次載入的名單');
       if (!started) {
         started = true;
@@ -306,13 +324,53 @@
   }
   $('boardBtn').onclick = function () { $('board').classList.toggle('hidden'); renderBoard(); };
 
+  /* ───── 概況(一打開就看到的數據看板;全部用手機上的資料即時計算) ───── */
+  function pbar(n, total) { return '<div class="pb"><i style="width:' + (total ? Math.round(n * 100 / total) : 0) + '%"></i></div>'; }
+  function renderDash() {
+    dashOn = true; cur = ''; $('banner').innerHTML = '';
+    var l = list(), s = computeStats();
+    if (!s.total) {
+      $('result').innerHTML = '<div class="card dash"><div class="who">目前沒有任何報到名額</div><div class="org" style="margin-top:6px">請先在試算表按選單「④ 由回函產生票券」,或確認網路連線。</div></div>';
+      return;
+    }
+    var byType = {};
+    l.forEach(function (t) { var k = t.type || '未分類'; var o = byType[k] = byType[k] || { n: 0, i: 0, g: 0 }; o.n++; if (t.inAt) o.i++; if (t.giftAt) o.g++; });
+    var recent = l.filter(function (t) { return t.inAt; }).sort(function (a, b) { return a.inAt < b.inAt ? 1 : a.inAt > b.inAt ? -1 : 0; }).slice(0, 6);
+    var pct = Math.round(s.in * 100 / s.total);
+    var h = '<div class="card dash"><div class="big"><div class="bn">' + s.in + '<small> / ' + s.total + ' 人已報到(' + pct + '%)</small></div>' + pbar(s.in, s.total) +
+      '<div class="bs">已領禮 <b>' + s.gift + '</b>・還沒到 <b>' + (s.total - s.in) + '</b></div></div>';
+    h += '<h4>各類別</h4>' + Object.keys(byType).sort(function (a, b) { return byType[b].n - byType[a].n; }).map(function (k) {
+      var o = byType[k]; return '<div class="dr"><span>' + esc(k) + '</span><span><b>' + o.i + '</b> / ' + o.n + '</span>' + pbar(o.i, o.n) + '</div>';
+    }).join('');
+    h += '<h4>各報到處(報到 / 領禮)</h4><div class="dg">' + ['1', '2', '3', '4'].map(function (d) {
+      var o = s.byDesk[d] || { in: 0, gift: 0 }; return '<div><b>' + o.in + '</b><span>' + d + ' 號處</span><span>領禮 ' + o.gift + '</span></div>';
+    }).join('') + '</div>';
+    h += '<h4>報到禮(剩餘 / 總數)</h4>' + Object.keys(s.gifts).map(function (k) {
+      var g = s.gifts[k]; return '<div class="dr"><span>🎁 ' + esc(k) + '</span><span>剩 <b>' + (g.total - g.given) + '</b> / ' + g.total + '</span>' + pbar(g.given, g.total) + '</div>';
+    }).join('');
+    h += '<h4>葷素人數</h4>' + Object.keys(s.diets).map(function (k) {
+      return '<div class="dr"><span>' + esc(k) + '</span><b>' + s.diets[k] + '</b></div>';
+    }).join('');
+    h += '<h4>最近報到</h4>' + (recent.length ? recent.map(function (t) {
+      return '<div class="dr rc"><span class="sm">' + esc(String(t.inAt).slice(0, 5)) + '</span><span>' + esc(t.name || t.code) + ' <span class="sm">' + esc(t.code) + '</span></span><span class="sm">' + (t.table ? '第 ' + esc(t.table) + ' 桌' : '') + '</span></div>';
+    }).join('') : '<div class="dr"><span class="sm">還沒有人報到</span></div>');
+    h += '<button class="link" id="dRoster">👥 查看誰還沒到(名冊)</button></div>';
+    $('result').innerHTML = h;
+    $('dRoster').onclick = function () {
+      rFilter = 'waiting';
+      if ($('roster').classList.contains('hidden')) $('rosterBtn').click(); else renderRoster();
+      $('roster').scrollIntoView();
+    };
+  }
+  $('dashBtn').onclick = function () { renderDash(); window.scrollTo(0, 0); $('q').focus(); };
+
   /* ───── 本機搜尋(瞬間完成) ───── */
   function banner(kind, title, sub) {
     $('banner').innerHTML = '<div class="banner ' + kind + '">' + title + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
   }
   function search(text) {
     text = String(text || '').trim(); if (!text) return;
-    $('q').value = ''; $('banner').innerHTML = '';
+    $('q').value = ''; $('banner').innerHTML = ''; dashOn = false;
     var q = extractCode(text), key = norm(q), l = list();
     var exact = l.filter(function (t) { return norm(t.code) === key; })[0];
     if (exact) { showParty(exact.party, exact.code); $('q').focus(); return; }
@@ -343,7 +401,7 @@
     return '<span class="st none">尚未報到</span>';
   }
   function showParty(pid, focus, preBanner) {
-    cur = pid;
+    cur = pid; dashOn = false;
     var ts = partyTickets(pid); if (!ts.length) return;
     var p = ts[0];
     var h = '<div class="card"><div class="who">' + esc(p.name || pid) + '</div><div class="org">' + esc(p.org) + (p.type ? '・' + esc(p.type) : '') + '・代號 ' + esc(pid) + '</div>' +

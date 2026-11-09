@@ -269,6 +269,13 @@ function readRsvps_(guests) {
   return out;
 }
 
+var companionGiftCache_ = null;
+/** 同行者的報到禮:讀「設定」分頁的「攜伴報到禮」,沒填就是 B禮 */
+function companionGift_() {
+  if (companionGiftCache_ === null) companionGiftCache_ = getSetting_('攜伴報到禮') || 'B禮';
+  return companionGiftCache_;
+}
+
 function ticketRow_(code, party, idx, r, diet) {
   var G = "'" + SHEET.GUESTS + "'!$A:$G", P = "'" + SHEET.PUBLIC + "'!$A:$G";
   var look = function (c, suffix) {   // 先找「名單」,找不到再找「民眾」
@@ -278,7 +285,7 @@ function ticketRow_(code, party, idx, r, diet) {
   var name = idx === 0 ? lk(2) : '=' + look(2, ' 的攜伴' + idx);
   var qrUrl = '=IF($A' + r + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL(UPPER($A' + r + ')))';
   var qrImg = '=IF($M' + r + '="","",IMAGE($M' + r + '))';
-  return [code, party, name, lk(3), lk(4), diet, lk(5), lk(6), '', '', '', '', qrUrl, qrImg];
+  return [code, party, name, lk(3), lk(4), diet, lk(5), idx === 0 ? lk(6) : companionGift_(), '', '', '', '', qrUrl, qrImg];
 }
 
 function generateTickets_() {
@@ -439,7 +446,7 @@ function guestLookup(code, name) {
   }
   var members = list.filter(function (t) { return norm_(t.party) === norm_(me.party); })
     .sort(function (a, b) { return suffix_(a) - suffix_(b); })
-    .map(function (t) { return { code: t.code, name: t.name, diet: t.diet, inAt: t.inAt, giftAt: t.giftAt }; });
+    .map(function (t) { return { code: t.code, name: t.name, diet: t.diet, gift: t.gift, inAt: t.inAt, giftAt: t.giftAt }; });
   return { ok: true, party: { code: me.party, name: me.name, org: me.org, table: me.table, gift: me.gift, members: members } };
 }
 

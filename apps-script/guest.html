@@ -2368,12 +2368,18 @@ var qrcode = function() {
     var q = qrcode(0, 'M'); q.addData(text); q.make();
     return q.createSvgTag({ cellSize: 8, margin: 4, scalable: true });
   }
+  function giftPills(p) {   // 本人與同行者的禮品可能不同
+    var c = {}, order = [];
+    p.members.forEach(function (m, i) { var g = m.gift || (i === 0 ? p.gift : ''); if (!g) return; if (!(g in c)) { c[g] = 0; order.push(g); } c[g]++; });
+    if (!order.length && p.gift) return '<span class="pill g">🎁 ' + esc(p.gift) + '</span>';
+    return order.map(function (g) { return '<span class="pill g">🎁 ' + esc(g) + (p.members.length > 1 ? ' × ' + c[g] : '') + '</span>'; }).join('');
+  }
   function render(p) {
     cur = p;
     var h = '<div class="qr">' + qrSvg(p.code.toUpperCase()) + '</div><div class="code">' + esc(p.code.toUpperCase()) + '</div>' +
       '<div class="who">' + esc(p.name) + '</div>' + (p.org ? '<div class="org">' + esc(p.org) + '</div>' : '') +
       '<div>' + (p.table ? '<span class="pill t">桌次 ' + esc(p.table) + '</span>' : '<span class="pill t">桌次尚未公布</span>') +
-      (p.gift ? '<span class="pill g">🎁 ' + esc(p.gift) + '</span>' : '') + '</div>' +
+      giftPills(p) + '</div>' +
       '<div class="tip">活動當天請於報到處出示此畫面或紙本憑證,由工作人員掃描。手機請把<b>螢幕亮度調到最亮</b>,並關閉自動變暗。<br>同行貴賓共用這一張憑證,請勿轉傳給他人。</div>' +
       '<h3>本組報到狀況</h3>' + p.members.map(function (m) {
         return '<div class="m"><div><div class="n">' + esc(m.name) + '</div><div class="c">' + esc(m.code) + (m.diet ? '・' + esc(m.diet) : '') + '</div></div>' +

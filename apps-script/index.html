@@ -42,6 +42,7 @@
   .t .nm { font-weight:700; }
   .t .st { font-size:15px; margin-top:2px; }
   .st.done { color:var(--ok); } .st.part { color:var(--warn); } .st.none { color:var(--mute); }
+  .gf { background:#fde4ea !important; color:#9b2c4a; font-weight:700 !important; }
   .dd { cursor:pointer; padding:6px 12px !important; font-size:15px !important; margin-left:8px !important; }
   .dd.empty { background:var(--warnbg); color:var(--warn); font-weight:700; }
   #dietDlg { position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:40; display:flex; align-items:flex-end; justify-content:center; }
@@ -488,11 +489,11 @@
     var ts = partyTickets(pid); if (!ts.length) return;
     var p = ts[0];
     var h = '<div class="card"><div class="who">' + esc(p.name || pid) + '</div><div class="org">' + esc(p.org) + (p.type ? '・' + esc(p.type) : '') + '・代號 ' + esc(pid) + '</div>' +
-      '<div class="chips"><span class="chip">桌次 ' + esc(p.table || '未排') + '</span><span class="chip gift">🎁 ' + esc(p.gift || '報到禮') + '</span></div>';
+      '<div class="chips"><span class="chip">桌次 ' + esc(p.table || '未排') + '</span><span class="chip gift">🎁 ' + esc(giftSummary(ts)) + '</span></div>';
     ts.forEach(function (t) {
       var done = t.inAt && t.giftAt;
       h += '<div class="t"><input type="checkbox" data-c="' + esc(t.code) + '"' + (done ? '' : ' checked') + '>' +
-        '<div class="info"><div class="nm">' + esc(t.name || t.code) + '<span class="diet dd' + (t.diet ? '' : ' empty') + '" data-dd="' + esc(t.code) + '">' + (t.diet ? esc(t.diet) : '＋填葷素') + '</span>' + '</div>' +
+        '<div class="info"><div class="nm">' + esc(t.name || t.code) + '<span class="diet dd' + (t.diet ? '' : ' empty') + '" data-dd="' + esc(t.code) + '">' + (t.diet ? esc(t.diet) : '＋填葷素') + '</span>' + (t.gift ? '<span class="diet gf">🎁 ' + esc(t.gift) + '</span>' : '') + '</div>' +
         '<div class="st">' + esc(t.code) + '・' + stText(t) + '</div></div>' +
         (t.inAt ? '<button class="undo" data-u="' + esc(t.code) + '" data-w="' + (t.giftAt ? 'gift' : 'in') + '">' + (t.giftAt ? '撤銷領禮' : '撤銷報到') + '</button>' : '') + '</div>';
     });
@@ -559,6 +560,12 @@
     Q.push({ kind: 'setDiet', opId: uid(), code: t.code, diet: diet, desk: DESK });
     saveLocal(); renderStats(); renderSync(); pump(); showParty(pid, '');
   }
+  /* 一組人可能有兩種禮(本人 A禮、同行者 B禮):彙總成「A禮 × 1、B禮 × 2」 */
+  function giftSummary(arr) {
+    var c = {}, order = [];
+    arr.forEach(function (t) { var g = t.gift || '報到禮'; if (!(g in c)) { c[g] = 0; order.push(g); } c[g]++; });
+    return order.map(function (g) { return g + ' × ' + c[g]; }).join('、');
+  }
   function picked() { return [].filter.call(document.querySelectorAll('.t input'), function (c) { return c.checked; }).map(function (c) { return c.dataset.c; }); }
   function updBtns() {
     var n = picked().length;
@@ -571,18 +578,18 @@
   function run(mode) {
     if (needDesk()) return;
     var codes = picked(); if (!codes.length) return;
-    var pid = cur, p = partyTickets(pid)[0], changed = [], ok = 0, dup = [];
+    var pid = cur, p = partyTickets(pid)[0], changed = [], ok = 0, dup = [], gifted = [];
     codes.forEach(function (c) {
       var t = T[norm(c)]; if (!t) return;
       var did = false;
       if (!t.inAt) { t.inAt = nowStr(); t.inDesk = DESK; did = true; }
-      if (mode === 'both' && !t.giftAt) { t.giftAt = nowStr(); t.giftDesk = DESK; did = true; }
+      if (mode === 'both' && !t.giftAt) { t.giftAt = nowStr(); t.giftDesk = DESK; did = true; gifted.push(t); }
       if (did) { changed.push(t.code); ok++; } else dup.push(t);
     });
     if (changed.length) Q.push({ kind: 'process', opId: uid(), codes: changed, mode: mode, desk: DESK });
     saveLocal(); renderStats(); renderSync(); pump();
     var b = '';
-    if (ok) b += '<div class="banner ok">✔ 完成 ' + ok + ' 人' + (mode === 'both' ? '・發放 ' + esc(p.gift || '報到禮') + ' × ' + ok : '') + '<small>請引導至「第 ' + esc(p.table || '?') + ' 桌」</small></div>';
+    if (ok) b += '<div class="banner ok">✔ 完成 ' + ok + ' 人' + (mode === 'both' && gifted.length ? '・發放 ' + esc(giftSummary(gifted)) : '') + '<small>請引導至「第 ' + esc(p.table || '?') + ' 桌」</small></div>';
     if (dup.length) b += '<div class="banner bad">⚠ ' + dup.length + ' 人先前已處理過:' + dup.map(function (d) { return esc(d.code); }).join('、') + '<small>' + esc(dup[0].inAt) + ',' + esc(dup[0].inDesk) + ' 號報到處。這次沒有重複記錄。</small></div>';
     showParty(pid, '', b);
     $('q').focus();

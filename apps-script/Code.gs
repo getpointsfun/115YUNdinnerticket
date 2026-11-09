@@ -235,7 +235,17 @@ function readRsvps_(guests) {
   var cCode = col(has('代號')), cName = col(has('姓名')), cOrg = col(has('單位')), cAtt = col(has('是否出席'));
   var cComp = col(function (h) { return h.indexOf('攜伴') >= 0 && h.indexOf('人數') >= 0; });
   var cTotal = col(function (h) { return h.indexOf('人數') >= 0 && h.indexOf('攜伴') < 0; });
-  var cMail = col(function (h) { return h.indexOf('電子郵件') >= 0 || h.indexOf('信箱') >= 0 || /e-?mail/i.test(h); });
+  var cMails = [];   // 可能有多個信箱欄(表單內建「電子郵件地址」、自訂「聯絡信箱」):每筆取第一個有效的
+  head.forEach(function (h, i) { if (h.indexOf('電子郵件') >= 0 || h.indexOf('信箱') >= 0 || /e-?mail/i.test(h)) cMails.push(i); });
+  var pickMail = function (row) {
+    var first = '';
+    for (var k = 0; k < cMails.length; k++) {
+      var v = String(row[cMails[k]]).trim();
+      if (v && !first) first = v;
+      if (validEmail_(v)) return v;
+    }
+    return first;
+  };
   var cDiet = [col(has('本人')), col(has('攜伴1')), col(has('攜伴2')), col(has('攜伴3'))];
   if ((cCode < 0 && cName < 0) || (cComp < 0 && cTotal < 0)) {
     throw new Error('回函的表頭需要有「姓名」(或「代號」),以及「攜伴人數」(或「出席人數」)。目前表頭:' + head.join('、'));
@@ -270,7 +280,7 @@ function readRsvps_(guests) {
     n = Math.max(0, Math.min(n, MAX_PARTY));
     out.map[norm_(g.code)] = { // 同一人回函多次,以最後一筆為準
       code: g.code, n: n, name: g.name,
-      email: cMail >= 0 ? String(row[cMail]).trim() : '',
+      email: pickMail(row),
       diets: cDiet.map(function (c) { return c >= 0 ? String(row[c]).trim() : ''; })
     };
   }

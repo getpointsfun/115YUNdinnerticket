@@ -226,7 +226,7 @@ function rsvpSheet_() {
  */
 function readRsvps_(guests) {
   var sh = rsvpSheet_();
-  var out = { map: {}, unmatched: [] };
+  var out = { map: {}, unmatched: [], mismatch: [] };
   if (!sh || sh.getLastRow() < 2) return out;
   var vals = sh.getDataRange().getValues();
   var head = vals[0].map(String);
@@ -281,8 +281,12 @@ function readRsvps_(guests) {
     out.map[norm_(g.code)] = { // 同一人回函多次,以最後一筆為準
       code: g.code, n: n, name: g.name,
       email: pickMail(row),
-      diets: cDiet.map(function (c) { return c >= 0 ? String(row[c]).trim() : ''; })
+      diets: cDiet.map(function (c) { var v = c >= 0 ? String(row[c]).trim() : ''; return v === '無' ? '' : v; })   // 方格題選「無」= 沒有這位
     };
+    if (n > 0 && cDiet[1] >= 0) {   // 攜伴人數 與 方格題填的攜伴數對不上 → 提醒人工確認
+      var filled = out.map[norm_(g.code)].diets.slice(1).filter(function (d) { return d; }).length;
+      if (filled !== n - 1) out.mismatch.push(g.name + ':攜伴人數填 ' + (n - 1) + ' 位,但飲食習慣只選了 ' + filled + ' 位攜伴');
+    }
   }
   return out;
 }
@@ -356,6 +360,7 @@ function generateTickets_() {
     rs.unmatched.slice().reverse().forEach(function (nm) {
       warns.unshift('回函中的「' + nm + '」在名單找不到對應的人,請確認姓名是否一致(需手動處理,否則不會產生票券)');
     });
+    rs.mismatch.forEach(function (m) { warns.push(m); });
     if (noRsvp) warns.push('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
       (pubAdded ? '\n其中民眾 ' + pubAdded + ' 位(「民眾」工作表中已填姓名的)。' : '') +

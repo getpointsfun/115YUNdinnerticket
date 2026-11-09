@@ -498,7 +498,7 @@
         (t.inAt ? '<button class="undo" data-u="' + esc(t.code) + '" data-w="' + (t.giftAt ? 'gift' : 'in') + '">' + (t.giftAt ? '撤銷領禮' : '撤銷報到') + '</button>' : '') + '</div>';
     });
     h += '<div class="actions"><button class="btn main" id="doBoth"></button><button class="btn sec" id="doIn"></button>' +
-      '<button class="link" id="addM">＋ 臨時多一位同行者(需連線)</button></div></div>';
+      (p.type === '民眾' ? '<div class="org" style="margin-top:6px">民眾不開放攜伴</div>' : '<button class="link" id="addM">＋ 臨時多一位同行者(需連線)</button>') + '</div></div>';
     $('result').innerHTML = h;
     if (preBanner) $('banner').innerHTML = preBanner;
     else if (focus) {
@@ -525,7 +525,7 @@
     });
     $('doBoth').onclick = function () { run('both'); };
     $('doIn').onclick = function () { run('in'); };
-    $('addM').onclick = function () {
+    if ($('addM')) $('addM').onclick = function () {
       if (needDesk()) return;
       askDiet('臨時新增 ' + pid + ' 的同行者:葷素?', true, function (diet) {
         google.script.run.withSuccessHandler(function (r) {

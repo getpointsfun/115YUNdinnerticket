@@ -191,7 +191,7 @@ function readGuests_() {
       if (nk) (out.byName[nk] = out.byName[nk] || []).push(g);   // 只有「名單」的人,才會拿來比對回函姓名
     });
   }
-  // 「民眾」工作表:每列一個預先產生的 QR;「姓名」有填才算啟用。民眾不需回函,一個 QR 一個人。
+  // 「民眾」工作表:每列一個預先產生的 QR;「姓名」有填才算啟用。民眾不需回函,一個 QR 一個人,不開放攜伴。
   var ps = ss_().getSheetByName(SHEET.PUBLIC);
   if (ps && ps.getLastRow() >= 2) {
     ps.getRange(2, 1, ps.getLastRow() - 1, 5).getValues().forEach(function (r) {
@@ -576,6 +576,8 @@ function addMember_(arg) {
   var key = norm_(arg.party);
   var mine = d.list.filter(function (t) { return norm_(t.party) === key; });
   if (!mine.length) return { ok: false, error: '找不到此組' };
+  var pg = readGuests_().byCode[key];
+  if (pg && pg.kind === '民眾') return { ok: false, error: '民眾不開放攜伴,無法新增同行者' };
   var max = 0;
   mine.forEach(function (t) { max = Math.max(max, suffix_(t)); });
   var idx = max + 1;

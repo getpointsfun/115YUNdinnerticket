@@ -128,7 +128,7 @@ function setup() {
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
   ensureSheet_(ss, SHEET.MAIL, ['時間', '代號', '姓名', '信箱', '結果']);
-  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱'].forEach(function (nm) {
+  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊'].forEach(function (nm) {
     var v = s.getRange(1, 1, s.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim(); });
     if (v.indexOf(nm) < 0) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([[nm, '']]);
   });
@@ -662,7 +662,8 @@ function mailQrBlob_(code) {
   return null;
 }
 
-function mailContent_(name, code, n, base) {
+function mailContent_(name, code, n, base, contact) {
+  contact = String(contact || '').trim();
   var C = String(code).toUpperCase();
   var link = (base ? base + (base.indexOf('?') < 0 ? '?' : '&') + 'page=me&c=' + encodeURIComponent(C) : '');
   var people = n > 1 ? '共 ' + n + ' 位(含您本人)' : '您本人 1 位';
@@ -671,7 +672,7 @@ function mailContent_(name, code, n, base) {
     '時間:' + MAIL_EVENT.when + '\n地點:' + MAIL_EVENT.where + '\n出席:' + people + '\n\n' +
     '您的報到代號:' + C + '\n活動當天請於報到處出示此信中的 QR Code(手機畫面或列印皆可),或紙本「貴賓報到憑證」,掃描後即可入席並領取報到禮。同行貴賓共用同一張憑證,請勿轉傳。\n' +
     (link ? '\n若信中圖片未顯示,請開啟:' + link + '(需輸入姓名)\n' : '') +
-    '\n如需更改出席人數或葷素,請於 11 月 20 日(五)前與我們聯絡。';
+    '\n如需更改出席人數或葷素,請於 11 月 20 日(五)前回覆本信或來電聯絡。' + (contact ? '\n\n' + contact : '');
   var html = '<div style="font-family:-apple-system,\'Noto Sans TC\',\'Microsoft JhengHei\',sans-serif;max-width:480px;margin:auto;color:#222;line-height:1.7">' +
     '<h2 style="margin:0 0 4px;color:#7a3e9d">' + escHtml_(MAIL_EVENT.title) + '</h2>' +
     '<div style="color:#666;margin-bottom:14px">貴賓電子報到憑證</div>' +
@@ -683,13 +684,27 @@ function mailContent_(name, code, n, base) {
     '<p style="margin-top:14px"><b>時間</b>:' + escHtml_(MAIL_EVENT.when) + '<br><b>地點</b>:' + escHtml_(MAIL_EVENT.where) + '</p>' +
     '<p>請於報到處出示此 QR Code(手機畫面或列印皆可),或紙本「貴賓報到憑證」,掃描後即可入席並領取報到禮。<b>同行貴賓共用一張憑證,請勿轉傳。</b></p>' +
     (link ? '<p style="font-size:13px;color:#666">圖片沒有顯示?<a href="' + escHtml_(link) + '">開啟我的電子憑證</a>(需輸入姓名)</p>' : '') +
-    '<p style="font-size:13px;color:#666">如需更改出席人數或葷素,請於 11 月 20 日(五)前與我們聯絡。</p></div>';
+    '<p style="font-size:13px;color:#666">如需更改出席人數或葷素,請於 11 月 20 日(五)前回覆本信或來電聯絡。</p>' +
+    (contact ? '<p style="font-size:13px;color:#666;border-top:1px solid #eee;padding-top:10px">' + escHtml_(contact).replace(/\n/g, '<br>') + '</p>' : '') + '</div>';
   return { subject: subject, text: text, html: html };
 }
 
+/** 「設定」有填「寄件信箱」時,必須是目前執行的帳號本人,否則不寄(避免從錯的信箱寄出) */
+function mailFromProblem_() {
+  var want = norm_(getSetting_('寄件信箱'));
+  if (!want) return '';
+  var me = norm_(Session.getEffectiveUser().getEmail() || Session.getActiveUser().getEmail());
+  if (me && me !== want) return '信件會從「' + me + '」寄出,但「設定」的寄件信箱是「' + want + '」。請改用 ' + want + ' 登入後再操作這個選單(開啟試算表的那個 Google 帳號就是寄件人)。';
+  return '';
+}
+
 function mailSendOne_(to, name, code, n) {
-  var c = mailContent_(name, code, n, getSetting_('報到網址'));
+  var bad = mailFromProblem_();
+  if (bad) throw new Error(bad);
+  var c = mailContent_(name, code, n, getSetting_('報到網址'), getSetting_('信件聯絡資訊'));
   var opt = { name: getSetting_('寄件人名稱') || MAIL_FROM_DEFAULT, htmlBody: c.html };
+  var want = getSetting_('寄件信箱');
+  if (validEmail_(want)) opt.replyTo = want;   // 貴賓按「回覆」會回到這個信箱
   var qr = mailQrBlob_(code);
   if (qr) opt.inlineImages = { qr: qr };
   MailApp.sendEmail(to, c.subject, c.text, opt);
@@ -735,6 +750,8 @@ function mailTriggers_() {
 function menuMailOn() {
   var ui = SpreadsheetApp.getUi();
   if (!getSetting_('報到網址')) { ui.alert('請先完成「② 儲存報到網址」,信裡的連結才會正確。'); return; }
+  var bad = mailFromProblem_();
+  if (bad) { ui.alert('⚠ ' + bad); return; }
   mailTriggers_().forEach(function (t) { ScriptApp.deleteTrigger(t); });
   var src = getSetting_('回函來源試算表'), m = src.match(/\/d\/([a-zA-Z0-9_-]+)/);
   var id = m ? m[1] : (src || ss_().getId());
@@ -759,6 +776,8 @@ function menuMailSend() {
     ui.alert('沒有需要補寄的人。' + (p.skipped.length ? '\n\n未寄出(共 ' + p.skipped.length + ' 人):\n' + p.skipped.slice(0, 15).map(function (x) { return '・' + x.name + ':' + x.why; }).join('\n') : ''));
     return;
   }
+  var bad = mailFromProblem_();
+  if (bad) { ui.alert('⚠ ' + bad); return; }
   var q = MailApp.getRemainingDailyQuota();
   var yn = ui.alert('將寄出 ' + p.todo.length + ' 封電子憑證(今天剩餘寄信額度 ' + q + ' 封)。\n確定要寄嗎?', ui.ButtonSet.YES_NO);
   if (yn !== ui.Button.YES) return;
@@ -770,6 +789,8 @@ function menuMailTest() {
   var ui = SpreadsheetApp.getUi();
   var me = Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail();
   if (!validEmail_(me)) { ui.alert('讀不到你的信箱,無法寄測試信。'); return; }
+  var bad = mailFromProblem_();
+  if (bad) { ui.alert('⚠ ' + bad); return; }
   var gs = readGuests_(), codes = Object.keys(gs.byCode);
   var g = gs.byCode[codes[0]] || { name: '王大明', code: 'VIP001' };
   var withQr = mailSendOne_(me, g.name, g.code, 2);

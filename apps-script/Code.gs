@@ -70,8 +70,12 @@ function menuFillQr() {
 }
 
 function menuInfo() {
-  SpreadsheetApp.getUi().alert('報到網址:\n' + getSetting_('報到網址') +
-    '\n\n工作人員密碼:' + getSetting_('工作人員密碼'));
+  var base = getSetting_('報到網址');
+  var k = boardKey_();
+  SpreadsheetApp.getUi().alert(
+    '【報到處(工讀生用)】\n' + base + '\n密碼:' + getSetting_('工作人員密碼') +
+    '\n\n【大螢幕歡迎看板】\n' + base + '?page=board&k=' + k +
+    '\n\n【貴賓查詢頁 / 電子報到憑證】\n' + base + '?page=me');
 }
 
 /* ───────────── 初始化 ───────────── */
@@ -149,10 +153,10 @@ function readGuests_() {
   var sh = ss_().getSheetByName(SHEET.GUESTS);
   var out = { byCode: {}, byName: {} };
   if (!sh || sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
     var c = String(r[0]).trim();
     if (!c) return;
-    var g = { code: c, name: String(r[1]).trim(), org: String(r[2]).trim() };
+    var g = { code: c, name: String(r[1]).trim(), org: String(r[2]).trim(), type: String(r[3]).trim(), table: String(r[4]).trim() };
     out.byCode[norm_(c)] = g;
     var nk = nameKey_(g.name);
     if (nk) (out.byName[nk] = out.byName[nk] || []).push(g);
@@ -298,8 +302,17 @@ function generateTickets_() {
  * 這裡的工作:提供快照、依序寫入(加鎖)、擋掉重複與重送。
  */
 
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index').setTitle('活動報到系統')
+/**
+ * 同一個網址,依 ?page= 顯示不同畫面:
+ *   (無)          報到處(工讀生用,要密碼)
+ *   ?page=board   大螢幕歡迎看板(要看板金鑰 &k=…)
+ *   ?page=me      貴賓查詢頁 / 電子報到憑證(輸入代號與姓名)
+ */
+function doGet(e) {
+  var page = (e && e.parameter && e.parameter.page) || '';
+  var file = page === 'board' ? 'board' : (page === 'me' ? 'guest' : 'index');
+  var title = { board: '貴賓報到看板', guest: '貴賓報到憑證', index: '活動報到系統' }[file];
+  return HtmlService.createHtmlOutputFromFile(file).setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -312,11 +325,78 @@ function api(pin, action, arg) {
   switch (action) {
     case 'ping': return { ok: true };
     case 'snapshot': return snapshot_();
+    case 'roster': return roster_();
     case 'process': return withLock_(function () { return process_(arg); });
     case 'undo': return withLock_(function () { return undo_(arg); });
     case 'addMember': return withLock_(function () { return addMember_(arg); });
     default: return { ok: false, error: '未知操作' };
   }
+}
+
+/* ───────────── 公開頁面(不使用工作人員密碼,只回傳必要欄位) ───────────── */
+
+function boardKey_() {
+  var k = getSetting_('大螢幕看板金鑰');
+  if (k) return k;
+  k = '';
+  var chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  for (var i = 0; i < 10; i++) k += chars.charAt(Math.floor(Math.random() * chars.length));
+  var sh = ss_().getSheetByName(SHEET.SETTINGS);
+  sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([['大螢幕看板金鑰', k]]);
+  return k;
+}
+
+/** 大螢幕看板:要帶看板金鑰。只回傳:人數統計、最近報到的幾組(姓名、單位、桌次、人數) */
+function boardData(key) {
+  var expected = getSetting_('大螢幕看板金鑰');
+  if (!expected || String(key == null ? '' : key) !== expected) return { ok: false, error: '看板金鑰不正確,請用「報到系統」選單⑤ 取得的看板網址。' };
+  var list = readTickets_().list;
+  var showNames = getSetting_('看板顯示姓名') !== '否';
+  var primary = {}, parties = {}, inCount = 0, giftCount = 0;
+  list.forEach(function (t) {
+    var k = norm_(t.party);
+    if (suffix_(t) === 0) primary[k] = t;
+    if (t.inAt) {
+      inCount++;
+      var p = parties[k] = parties[k] || { key: k, party: t.party, n: 0, at: '' };
+      p.n++;
+      if (t.inAt > p.at) p.at = t.inAt;
+    }
+    if (t.giftAt) giftCount++;
+  });
+  var recent = Object.keys(parties).map(function (k) { return parties[k]; })
+    .sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; })
+    .slice(0, 12)
+    .map(function (p) {
+      var h = primary[p.key] || {};
+      return {
+        id: p.party + '@' + p.at,
+        name: showNames ? (h.name || p.party) : '貴賓',
+        org: showNames ? (h.org || '') : '',
+        table: h.table || '', n: p.n, at: p.at
+      };
+    });
+  return { ok: true, total: list.length, in: inCount, gift: giftCount, recent: recent,
+    now: Utilities.formatDate(new Date(), ss_().getSpreadsheetTimeZone(), 'HH:mm:ss') };
+}
+
+/**
+ * 貴賓查詢頁 / 電子報到憑證。必須同時輸入「代號」與「姓名」且相符,才回傳該組資料;
+ * 只回傳這一組(本人與同行者)的姓名、桌次、報到狀態。錯誤時不透露是代號還是姓名錯。
+ */
+function guestLookup(code, name) {
+  var key = norm_(extractCode_(code)), nk = nameKey_(name);
+  if (!key || !nk) return { ok: false, error: '請輸入代號與姓名' };
+  var list = readTickets_().list;
+  var me = list.filter(function (t) { return norm_(t.code) === key && suffix_(t) === 0; })[0];
+  if (!me || nameKey_(me.name) !== nk) {
+    Utilities.sleep(600); // 稍微拖慢,避免被人一個個猜代號
+    return { ok: false, error: '查無資料,請確認「代號」與「姓名」是否與邀請卡相同。' };
+  }
+  var members = list.filter(function (t) { return norm_(t.party) === norm_(me.party); })
+    .sort(function (a, b) { return suffix_(a) - suffix_(b); })
+    .map(function (t) { return { code: t.code, name: t.name, diet: t.diet, inAt: t.inAt, giftAt: t.giftAt }; });
+  return { ok: true, party: { code: me.party, name: me.name, org: me.org, table: me.table, gift: me.gift, members: members } };
 }
 
 function readTickets_() {
@@ -341,6 +421,22 @@ function readTickets_() {
 function snapshot_() {
   var list = readTickets_().list.map(function (t) { delete t.row; return t; });
   return { ok: true, tickets: list, at: new Date().getTime() };
+}
+
+/**
+ * 名冊:名單上每一位貴賓 + 回函狀態(yes 出席 / no 不克出席 / none 沒有回函)。
+ * 「到了沒有」由報到網頁用手機上的報到資料即時計算,所以這裡不重複回傳。
+ */
+function roster_() {
+  var guests = readGuests_();
+  var rs = { map: {}, unmatched: [] }, rsvpError = '';
+  try { rs = readRsvps_(guests); } catch (e) { rsvpError = String(e && e.message || e); }
+  var rows = Object.keys(guests.byCode).map(function (k) {
+    var g = guests.byCode[k], r = rs.map[k];
+    return { code: g.code, name: g.name, org: g.org, type: g.type, table: g.table,
+      rsvp: r ? (r.n > 0 ? 'yes' : 'no') : 'none' };
+  });
+  return { ok: true, rows: rows, unmatched: rs.unmatched, rsvpError: rsvpError };
 }
 
 function suffix_(t) { var m = t.code.match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --bg:#241a38; --card:#2f2347; --ink:#ffffff; --mute:#b9adcf; --pink:#ec5b7e; --blue:#63b8d6; --yellow:#f2c15d; }
+  * { box-sizing:border-box; margin:0; }
+  html, body { height:100%; }
+  body { background:radial-gradient(1200px 700px at 85% -10%, #4a3470 0%, transparent 60%), var(--bg); color:var(--ink);
+         font-family:-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif; overflow:hidden; }
+  .wrap { height:100vh; display:grid; grid-template-rows:auto 1fr auto; padding:2.4vh 3vw; gap:2.4vh; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; gap:2vw; }
+  h1 { font-size:4.6vh; letter-spacing:.18em; line-height:1.15; }
+  .sub { color:var(--mute); font-size:2.4vh; margin-top:.6vh; letter-spacing:.1em; }
+  .counter { text-align:right; min-width:26vw; }
+  .num { font-size:10vh; font-weight:900; line-height:1; }
+  .num small { font-size:4.2vh; color:var(--mute); font-weight:500; }
+  .lbl { color:var(--mute); font-size:2.2vh; }
+  .bar { height:1.3vh; background:#ffffff22; border-radius:1vh; overflow:hidden; margin-top:1vh; }
+  .bar i { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--blue),var(--pink)); transition:width .8s; }
+  main { display:grid; grid-template-columns:1.3fr 1fr; gap:3vw; min-height:0; }
+  .spot { background:var(--card); border-radius:2.2vh; padding:4vh 3.4vw; display:flex; flex-direction:column; justify-content:center;
+          border:1px solid #ffffff1a; min-width:0; }
+  .hello { color:var(--blue); font-size:3.6vh; letter-spacing:.35em; }
+  .name { font-size:13vh; font-weight:900; margin:2vh 0 1vh; line-height:1.1; overflow-wrap:anywhere; }
+  .org { font-size:4.2vh; color:var(--mute); line-height:1.3; }
+  .more { margin-top:2vh; font-size:3.2vh; color:var(--pink); font-weight:700; }
+  .table { margin-top:3.4vh; font-size:6vh; color:var(--yellow); font-weight:800; }
+  .pop { animation:pop .9s ease; }
+  @keyframes pop { 0% { transform:scale(.96); opacity:.35; } 100% { transform:scale(1); opacity:1; } }
+  .list { display:flex; flex-direction:column; gap:1.2vh; overflow:hidden; min-width:0; }
+  .list h2 { font-size:2.6vh; color:var(--mute); font-weight:500; letter-spacing:.15em; }
+  .card { display:grid; grid-template-columns:1fr auto; align-items:center; gap:1vw; background:var(--card); border-radius:1.5vh;
+          padding:1.5vh 1.6vw; border:1px solid #ffffff14; }
+  .card .n { font-size:3.6vh; font-weight:700; }
+  .card .o { font-size:2vh; color:var(--mute); margin-top:.3vh; }
+  .card .t { font-size:2.8vh; color:var(--yellow); font-weight:700; text-align:right; }
+  .card .tm { font-size:1.8vh; color:var(--mute); text-align:right; margin-top:.3vh; }
+  footer { display:flex; justify-content:space-between; color:var(--mute); font-size:2vh; gap:2vw; }
+  .err { color:#ffb4b4; font-size:3vh; }
+  .wait .name { font-size:8.4vh; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>風沙退場・雲林好食宴</h1>
+      <div class="sub">貴賓報到</div>
+    </div>
+    <div class="counter">
+      <div class="lbl">已報到</div>
+      <div class="num"><span id="in">–</span><small> / <span id="total">–</span> 位</small></div>
+      <div class="bar"><i id="bar"></i></div>
+    </div>
+  </header>
+  <main>
+    <section class="spot wait" id="spot">
+      <div class="hello">歡迎蒞臨</div>
+      <div class="name">風沙退場<br>雲林好食宴</div>
+      <div class="org">請出示「貴賓報到憑證」於報到處掃描</div>
+    </section>
+    <section class="list">
+      <h2>最近報到</h2>
+      <div id="cards"></div>
+    </section>
+  </main>
+  <footer>
+    <div>115 年 12 月 5 日(六)17:30・西螺森活武樹園區</div>
+    <div id="status">連線中…</div>
+  </footer>
+</div>
+<script>
+(function () {
+  var KEY = '', last = '';
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function getKey(cb) {
+    try {
+      google.script.url.getLocation(function (loc) {
+        var k = loc && loc.parameter && loc.parameter.k;
+        cb(k ? String(Array.isArray(k) ? k[0] : k) : '');
+      });
+    } catch (e) { cb(''); }
+  }
+  function render(r) {
+    if (!r || !r.ok) {
+      $('spot').className = 'spot wait';
+      $('spot').innerHTML = '<div class="hello">看板無法顯示</div><div class="org err">' + esc((r && r.error) || '連線失敗') + '</div>';
+      $('status').textContent = '無法取得資料'; return;
+    }
+    $('in').textContent = r.in; $('total').textContent = r.total;
+    $('bar').style.width = (r.total ? Math.min(100, Math.round(r.in * 100 / r.total)) : 0) + '%';
+    var first = r.recent[0];
+    if (first) {
+      var s = $('spot');
+      s.className = 'spot';
+      s.innerHTML = '<div class="hello">歡迎光臨</div><div class="name">' + esc(first.name) + '</div>' +
+        (first.org ? '<div class="org">' + esc(first.org) + '</div>' : '') +
+        (first.n > 1 ? '<div class="more">與 ' + (first.n - 1) + ' 位同行貴賓</div>' : '') +
+        (first.table ? '<div class="table">請至第 ' + esc(first.table) + ' 桌</div>' : '');
+      if (first.id !== last) { void s.offsetWidth; s.classList.add('pop'); last = first.id; }
+    }
+    $('cards').innerHTML = r.recent.slice(1, 8).map(function (p) {
+      return '<div class="card"><div><div class="n">' + esc(p.name) + (p.n > 1 ? ' 等 ' + p.n + ' 位' : '') + '</div>' +
+        (p.org ? '<div class="o">' + esc(p.org) + '</div>' : '') + '</div>' +
+        '<div><div class="t">' + (p.table ? '第 ' + esc(p.table) + ' 桌' : '') + '</div><div class="tm">' + esc(String(p.at).slice(0, 5)) + '</div></div></div>';
+    }).join('');
+    $('status').textContent = '更新時間 ' + esc(r.now || '');
+  }
+  function poll() {
+    google.script.run.withSuccessHandler(render)
+      .withFailureHandler(function () { $('status').textContent = '連線中斷,重試中…'; })
+      .boardData(KEY);
+  }
+  getKey(function (k) { KEY = k; poll(); setInterval(poll, 4000); });
+})();
+</script>
+</body>
+</html>

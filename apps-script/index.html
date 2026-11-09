@@ -48,6 +48,15 @@
   .actions .btn.main { font-size:24px; padding:18px; background:var(--ok); }
   .list .row { display:flex; justify-content:space-between; align-items:center; padding:14px 6px; border-top:1px solid var(--line); cursor:pointer; }
   .list .row:first-child { border-top:0; }
+  .fl { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
+  .fl button { border:2px solid var(--line); background:#fff; border-radius:999px; padding:6px 12px; font-size:15px; font-weight:700; color:var(--ink); }
+  .fl button.on { background:var(--pri); border-color:var(--pri); color:#fff; }
+  .rrow { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:10px 2px; border-top:1px solid var(--line); cursor:pointer; }
+  .rrow .a { min-width:0; } .rrow .nm { font-weight:700; } .rrow .og { font-size:14px; color:var(--mute); }
+  .badge { flex:none; font-size:14px; font-weight:700; padding:4px 10px; border-radius:999px; }
+  .b-arrived { background:var(--okbg); color:var(--ok); } .b-partial { background:var(--warnbg); color:var(--warn); }
+  .b-waiting { background:#e0e7ff; color:#3730a3; } .b-noreply { background:#f3f4f6; color:var(--mute); } .b-declined { background:var(--badbg); color:var(--bad); }
+  #rq { width:100%; font-size:17px; padding:10px; border:2px solid var(--line); border-radius:10px; }
   table { width:100%; border-collapse:collapse; font-size:16px; } td,th { padding:6px 4px; border-top:1px solid var(--line); text-align:left; }
   .link { background:none; border:0; color:var(--pri); font-size:16px; padding:8px 0; }
   #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#111827; color:#fff; padding:12px 18px; border-radius:10px; font-size:17px; z-index:20; max-width:90vw; }
@@ -70,15 +79,18 @@
       <button class="desk" data-d="3">3</button><button class="desk" data-d="4">4</button><b>號報到處</b><span class="sync ok" id="sync">✔ 已同步</span>
     </div>
     <div class="stats" id="stats"></div>
+    <div id="syncErr" class="hidden" style="margin-top:6px;font-size:14px;color:var(--bad)"></div>
   </header>
   <main>
     <div class="bar">
-      <input id="q" placeholder="用掃描器掃 QR,或輸入票號 / 姓名 / 單位" autocomplete="off" autocapitalize="off">
+      <input id="q" placeholder="用掃描器掃 QR,或輸入代號 / 姓名 / 單位" autocomplete="off" autocapitalize="off">
       <button class="btn" id="go">查詢</button>
     </div>
     <div id="alerts"></div>
     <div id="banner"></div>
     <div id="result"></div>
+    <button class="link" id="rosterBtn">👥 名冊(誰到了、誰還沒到)</button>
+    <div id="roster" class="card hidden"></div>
     <button class="link" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
     <div id="board" class="card hidden"></div>
   </main>
@@ -97,7 +109,7 @@
   var T = {};            // 本機名單:票號(小寫) -> 票
   var Q = [];            // 待送出的操作(依序)
   var conflicts = [];    // 事後發現的重複
-  var sending = false, online = true, started = false, cur = '', pulling = false;
+  var lastErr = '', sending = false, online = true, started = false, cur = '', pulling = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -136,6 +148,7 @@
   /* ───── 與試算表同步 ───── */
   function renderSync() {
     var el = $('sync');
+    var se = $('syncErr'); if (se) { se.textContent = lastErr ? '⚠ 同步失敗:' + lastErr : ''; se.classList.toggle('hidden', !lastErr); }
     if (Q.length) { el.textContent = '⏳ 待同步 ' + Q.length + ' 筆'; el.className = 'sync warn'; }
     else if (!online) { el.textContent = '⚠ 離線(用暫存資料)'; el.className = 'sync bad'; }
     else { el.textContent = '✔ 已同步'; el.className = 'sync ok'; }
@@ -149,6 +162,7 @@
     var pend = pendingCodes(), n = {};
     arr.forEach(function (t) { var k = norm(t.code); n[k] = (pend[k] && T[k]) ? T[k] : t; });
     T = n; saveLocal(); renderStats();
+    if (!$('roster').classList.contains('hidden')) renderRoster();
   }
   function pullSnapshot(cb) {
     if (pulling) return; pulling = true;
@@ -168,12 +182,12 @@
     google.script.run.withSuccessHandler(function (r) {
       sending = false;
       if (r && r.auth === false) { showLogin(r.error); return; }
-      Q.shift(); saveLocal(); online = true;
+      Q.shift(); saveLocal(); online = true; lastErr = '';
       if (!r || r.ok === false) toast('⚠ 有一筆同步失敗:' + ((r && r.error) || '未知原因') + '。請通知管理員。');
       else handleResults(r);
       renderSync(); pump();
-    }).withFailureHandler(function () {
-      sending = false; online = false; renderSync();
+    }).withFailureHandler(function (e) {
+      sending = false; online = false; lastErr = String((e && e.message) || e || '未知錯誤').slice(0, 160); renderSync();
     }).api(PIN, op.kind, op);
   }
   function handleResults(r) {
@@ -183,7 +197,7 @@
         if (t) { t.inAt = x.inAt; t.inDesk = x.inDesk; t.giftAt = x.giftAt; t.giftDesk = x.giftDesk; }
         conflicts.push(x.code + ' 其實早已於 ' + x.inAt + ' 在第 ' + x.inDesk + ' 號報到處' + (x.giftAt ? '報到並領禮' : '報到') + '。這次是重複入場,請確認!');
       } else if (x.status === 'notfound') {
-        conflicts.push('找不到票 ' + x.code + '(名單可能已被更動)');
+        conflicts.push('找不到 ' + x.code + '(名單可能已被更動)');
       }
     });
     renderAlerts();
@@ -395,6 +409,65 @@
     if (t.closest && t.closest('button, input, a, .row')) return;
     $('q').focus();
   });
+
+  /* ───── 名冊:每位貴賓到了沒有 ───── */
+  var ROSTER = null, rFilter = 'waiting', rQuery = '';
+  var STATUS = { arrived: '已到', partial: '部分到', waiting: '尚未到', noreply: '未回函', declined: '不克出席' };
+  var FILTERS = [['waiting', '尚未到(已回函)'], ['partial', '部分到'], ['arrived', '已到'], ['noreply', '未回函'], ['declined', '不克出席'], ['all', '全部']];
+  function rStatus(g) {
+    var ts = partyTickets(g.code), inN = ts.filter(function (t) { return t.inAt; }).length;
+    if (inN) return inN === ts.length ? 'arrived' : 'partial';
+    if (g.rsvp === 'no') return 'declined';
+    if (g.rsvp === 'yes') return 'waiting';
+    return 'noreply';
+  }
+  function loadRoster() {
+    $('roster').innerHTML = '<div class="org">讀取名冊中…</div>';
+    google.script.run.withSuccessHandler(function (r) {
+      if (r && r.auth === false) { showLogin(r.error); return; }
+      if (!r || r.ok === false) { $('roster').innerHTML = '<div class="org">名冊讀取失敗:' + esc((r && r.error) || '未知原因') + '</div>'; return; }
+      ROSTER = r; renderRoster();
+    }).withFailureHandler(function (e) {
+      $('roster').innerHTML = '<div class="org">名冊讀取失敗(請檢查網路):' + esc((e && e.message) || e || '') + '</div>';
+    }).api(PIN, 'roster', {});
+  }
+  function renderRoster() {
+    if (!ROSTER) return;
+    var rows = ROSTER.rows.map(function (g) { var ts = partyTickets(g.code); g._s = rStatus(g); g._in = ts.filter(function (t) { return t.inAt; }).length; g._n = ts.length; return g; });
+    var cnt = { all: rows.length }; rows.forEach(function (g) { cnt[g._s] = (cnt[g._s] || 0) + 1; });
+    var q = norm(rQuery);
+    var shown = rows.filter(function (g) {
+      return (rFilter === 'all' || g._s === rFilter) && (!q || norm(g.name).indexOf(q) >= 0 || norm(g.org).indexOf(q) >= 0 || norm(g.code).indexOf(q) >= 0 || norm(g.type).indexOf(q) >= 0);
+    });
+    var h = '<div class="fl">' + FILTERS.map(function (f) {
+      return '<button data-f="' + f[0] + '" class="' + (rFilter === f[0] ? 'on' : '') + '">' + f[1] + ' ' + (cnt[f[0]] || 0) + '</button>';
+    }).join('') + '</div><input id="rq" placeholder="搜尋姓名、單位、類別、代號" value="' + esc(rQuery) + '" autocomplete="off">';
+    if (ROSTER.rsvpError) h += '<div class="org" style="color:var(--bad);margin-top:8px">⚠ 讀不到回函資料(' + esc(ROSTER.rsvpError) + '),「未回函/不克出席」可能不準。</div>';
+    h += '<div class="org" style="margin:8px 0">顯示 ' + shown.length + ' 位' + (shown.length > 300 ? '(只列前 300 位,請用搜尋縮小範圍)' : '') + '</div>';
+    h += shown.slice(0, 300).map(function (g) {
+      var extra = g._n > 1 ? '(' + g._in + '/' + g._n + ' 人)' : '';
+      return '<div class="rrow" data-c="' + esc(g.code) + '"><div class="a"><div class="nm">' + esc(g.name) + ' <span class="og">' + esc(g.code) + '</span></div>' +
+        '<div class="og">' + esc(g.org) + (g.table ? '・第 ' + esc(g.table) + ' 桌' : '') + '</div></div>' +
+        '<span class="badge b-' + g._s + '">' + STATUS[g._s] + extra + '</span></div>';
+    }).join('');
+    h += '<button class="link" id="rReload">↻ 重新讀取名冊(同步最新回函)</button>';
+    var keepFocus = document.activeElement && document.activeElement.id === 'rq', pos = keepFocus ? document.activeElement.selectionStart : 0;
+    $('roster').innerHTML = h;
+    [].forEach.call($('roster').querySelectorAll('.fl button'), function (b) { b.onclick = function () { rFilter = b.dataset.f; renderRoster(); }; });
+    $('rq').oninput = function () { rQuery = this.value; renderRoster(); };
+    if (keepFocus) { $('rq').focus(); try { $('rq').setSelectionRange(pos, pos); } catch (e) {} }
+    $('rReload').onclick = loadRoster;
+    [].forEach.call($('roster').querySelectorAll('.rrow'), function (r) {
+      r.onclick = function () {
+        if (!partyTickets(r.dataset.c).length) { toast('這位貴賓目前沒有報到名額(不克出席,或還沒按選單④)'); return; }
+        window.scrollTo(0, 0); search(r.dataset.c);
+      };
+    });
+  }
+  $('rosterBtn').onclick = function () {
+    var open = $('roster').classList.toggle('hidden') === false;
+    if (open) { if (ROSTER) renderRoster(); loadRoster(); }
+  };
 
   window.addEventListener('online', function () { pump(); pullSnapshot(); });
   if (PIN) boot(); else showLogin();

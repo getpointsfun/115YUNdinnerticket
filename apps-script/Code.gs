@@ -31,7 +31,8 @@ function onOpen() {
     .addItem('⑨ 寄一封測試信給我自己', 'menuMailTest')
     .addItem('⑩ 關閉自動寄信', 'menuMailOff')
     .addSeparator()
-    .addItem('⑪ 建立 / 重排「桌位圖」版面', 'menuLayout')
+    .addItem('⑪ 建立 / 重排「桌位圖」版面(圓桌)', 'menuLayout')
+    .addItem('⑫ 建立「帳篷版」桌位圖(7 頂帳篷、56 張長桌)', 'menuLayoutTents')
     .addToUi();
 }
 
@@ -508,24 +509,73 @@ function snapshot_() {
 }
 
 /**
- * 場地桌位圖的版面:讀「桌位」分頁。
- *   桌號 | 欄 | 列 | 座位數 | 寬 | 高 | 說明
- * 桌號是一般號碼/名稱 → 畫成圓桌(欄、列是方格座標,從 1 開始);桌號以 # 開頭(例:#舞台、#入口)→ 畫成標示方塊(寬、高是佔幾格)。
- * 座位數沒填就用「設定」分頁的「每桌座位數」(預設 10)。沒有「桌位」分頁時回傳空的,網頁會自動排列。
+ * 場地桌位圖的版面:讀「桌位」分頁(依表頭名稱找欄,順序不拘)。
+ *   桌號 | 區域 | 欄 | 列 | 座位數 | 桌型 | 旋轉 | 寬 | 高 | 說明
+ * 桌型:
+ *   (空白)或 圓桌 → 圓桌,座位繞一圈;欄、列是方格座標(從 1 開始)
+ *   長桌          → 長方形桌,座位在長邊兩側;欄、列是「所屬帳篷中心」的偏移(圖上像素),旋轉單位是度
+ *   帳篷          → 一個區域(桌號寫帳篷名稱,例 A);欄、列是在全場圖的位置,寬、高是大小
+ *   標示          → 舞台、入口等方塊;說明寫「民眾」代表這是民眾自由入座區,圖上顯示民眾到場人數
+ * 長桌的「區域」要和帳篷的桌號一樣,點帳篷就會放大看那頂帳篷的所有桌子。
+ * 座位數沒填就用「設定」分頁的「每桌座位數」(預設 10);長桌通常填 6(每側 3 人)。
+ * 舊格式(桌號 | 欄 | 列 | 座位數 | 寬 | 高 | 說明,桌號 # 開頭是標示方塊)仍可讀。
  */
 function readLayout_() {
   var seats = parseInt(getSetting_('每桌座位數'), 10) || 10, items = [];
   var sh = ss_().getSheetByName(SHEET.LAYOUT);
   if (sh && sh.getLastRow() >= 2) {
-    sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(function (r) {
-      var k = String(r[0]).trim(), x = parseInt(r[1], 10), y = parseInt(r[2], 10);
-      if (!k || !(x >= 1) || !(y >= 1)) return;
-      var special = k.charAt(0) === '#';
-      items.push({ k: special ? k.slice(1) : k, x: x, y: y, special: special,
-        seats: parseInt(r[3], 10) || 0, w: parseInt(r[4], 10) || 1, h: parseInt(r[5], 10) || 1, note: String(r[6] || '').trim() });
+    var vals = sh.getRange(1, 1, sh.getLastRow(), Math.max(sh.getLastColumn ? sh.getLastColumn() : 10, 7)).getValues();
+    var head = vals[0].map(function (h) { return String(h).trim(); });
+    var ci = function (n, def) { var i = head.indexOf(n); return i >= 0 ? i : def; };
+    var legacy = head.indexOf('區域') < 0 && head.indexOf('桌型') < 0;
+    var C = legacy ? { k: 0, z: -1, x: 1, y: 2, s: 3, t: -1, r: -1, w: 4, h: 5, n: 6 }
+      : { k: ci('桌號', 0), z: ci('區域', -1), x: ci('欄', -1), y: ci('列', -1), s: ci('座位數', -1), t: ci('桌型', -1), r: ci('旋轉', -1), w: ci('寬', -1), h: ci('高', -1), n: ci('說明', -1) };
+    var g = function (r, i) { return i >= 0 ? r[i] : ''; };
+    var num = function (v, d) { var f = parseFloat(v); return isNaN(f) ? d : f; };
+    vals.slice(1).forEach(function (r) {
+      var k = String(g(r, C.k)).trim(), x = num(g(r, C.x), NaN), y = num(g(r, C.y), NaN);
+      if (!k || isNaN(x) || isNaN(y)) return;
+      var type = String(g(r, C.t)).trim(), special = false;
+      if (legacy && k.charAt(0) === '#') { special = true; k = k.slice(1); type = '標示'; }
+      if (type === '標示') special = true;
+      items.push({ k: k, zone: String(g(r, C.z)).trim(), x: x, y: y, special: special, kind: type === '帳篷' ? 'tent' : (type === '長桌' ? 'long' : (special ? 'mark' : 'round')),
+        seats: parseInt(g(r, C.s), 10) || 0, w: num(g(r, C.w), 1), h: num(g(r, C.h), 1), rot: num(g(r, C.r), 0), note: String(g(r, C.n) || '').trim() });
     });
   }
   return { items: items, seats: seats };
+}
+
+/** 帳篷版桌位圖的資料(7 頂帳篷:A~G,每頂 8 張 180x60 公分長桌,每張 6 人)。座標是依場地圖量出來的圖上像素。 */
+function tentLayoutRows_() {
+  var rows = [['桌號', '區域', '欄', '列', '座位數', '桌型', '旋轉', '寬', '高', '說明']];
+  // 單峰大號:中間 4 張接成一條(直放),四周各 2 張(橫放)。雙峰天幕:4 條各 2 張,順時針約 20 度。
+  var tents = [['A', 450, 700, 's'], ['B', 525, 455, 'd'], ['C', 715, 835, 'd'], ['D', 720, 590, 's'], ['E', 890, 665, 's'], ['F', 985, 870, 's'], ['G', 1115, 715, 'd']];
+  var single = [[0, -47, 90], [0, -16, 90], [0, 16, 90], [0, 47, 90], [-38, -22, 0], [-38, 18, 0], [38, -22, 0], [38, 18, 0]];
+  var bars = [[-27, -42], [-41, -1], [47, 0], [33, 32]], ux = 13.6, uy = 4.9;
+  tents.forEach(function (t) {
+    rows.push([t[0], '', t[1], t[2], '', '帳篷', 0, t[3] === 's' ? 160 : 200, t[3] === 's' ? 190 : 170, t[3] === 's' ? '單峰大號' : '雙峰天幕']);
+    var offs = t[3] === 's' ? single : [].concat.apply([], bars.map(function (b) { return [[b[0] - ux, b[1] - uy, 20], [b[0] + ux, b[1] + uy, 20]]; }));
+    offs.forEach(function (o, i) { rows.push([t[0] + (i + 1), t[0], o[0], o[1], 6, '長桌', o[2], '', '', '']); });
+  });
+  rows.push(['舞台', '', 650, 990, '', '標示', 0, 170, 70, '']);
+  rows.push(['貴賓報到區', '', 1320, 700, '', '標示', 0, 80, 190, '']);
+  rows.push(['休閒用餐區(民眾自由入座)', '', 880, 410, '', '標示', 0, 520, 80, '民眾']);
+  return rows;
+}
+
+function menuLayoutTents() {
+  var ui = SpreadsheetApp.getUi(), ss = ss_(), sh = ss.getSheetByName(SHEET.LAYOUT);
+  if (sh && sh.getLastRow() >= 2) {
+    var yn = ui.alert('「桌位」分頁已經有資料,要整個換成帳篷版嗎?(你改過的內容會被覆蓋)', ui.ButtonSet.YES_NO);
+    if (yn !== ui.Button.YES) return;
+  }
+  var rows = tentLayoutRows_();
+  if (!sh) sh = ss.insertSheet(SHEET.LAYOUT);
+  sh.clear();
+  sh.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+  sh.getRange(1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#e8eaed');
+  sh.setFrozenRows(1);
+  ui.alert('已建立帳篷版「桌位」分頁:7 頂帳篷(A~G),每頂 8 張長桌(例 A1~A8),每張 6 人,共 56 桌 336 個座位。\n\n「名單」的桌次欄請填桌號,例如 A1、B3。報到網頁的「概況 → 桌位圖」約 8 秒後更新。');
 }
 
 /** 選單:依「名單」「民眾」目前有的桌次,產生「桌位」分頁的起始版面(整齊的格子 + 舞台),再自己改欄、列對照場地圖 */

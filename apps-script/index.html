@@ -355,7 +355,7 @@
   /* ───── 概況(一打開就看到的數據看板;全部用手機上的資料即時計算) ───── */
   var DASH_STYLES = [['map', '桌位圖'], ['ring', '圓環'], ['tile', '數字'], ['dots', '點陣']];
   var dashStyle = store.get('dash2') || 'map';
-  var L = { items: [], seats: 10 }, selTable = '';
+  var L = { items: [], seats: 10 }, selTable = '', selTent = '';
   function dashData() {
     var l = list(), s = computeStats(), byType = {};
     l.forEach(function (t) { var k = t.type || '未分類'; var o = byType[k] = byType[k] || { n: 0, i: 0, g: 0 }; o.n++; if (t.inAt) o.i++; if (t.giftAt) o.g++; });
@@ -433,7 +433,72 @@
         return '<div class="t1"><span>🎁 ' + esc(k) + '</span><b>' + (g.total - g.given) + '<em> / ' + g.total + '</em></b></div>'; }).join('') + '</div>';
   }
 
+
+  /* 帳篷版桌位圖:先看全場(帳篷顏色=到齊程度),點帳篷放大看每張長桌、每個座位 */
+  function dashFloor(d) {
+    var rank = function (t) { return t.inAt && t.giftAt ? 0 : (t.inAt ? 1 : 2); }, groups = {}, noTable = 0, pub = { n: 0, i: 0 };
+    d.l.forEach(function (t) {
+      if (t.type === '民眾') { pub.n++; if (t.inAt) pub.i++; }
+      var k = String(t.table || '').trim(); if (!k) { if (t.type !== '民眾') noTable++; return; } (groups[k] = groups[k] || []).push(t);
+    });
+    var its = L.items || [], tents = its.filter(function (i) { return i.kind === 'tent'; }), marks = its.filter(function (i) { return i.kind === 'mark'; }), longs = its.filter(function (i) { return i.kind === 'long'; });
+    var byZone = {}, known = {}; longs.forEach(function (it) { (byZone[it.zone] = byZone[it.zone] || []).push(it); known[it.k] = 1; });
+    var stat = function (z) { var o = { tot: 0, arr: 0, cap: 0 }; (byZone[z] || []).forEach(function (it) { var ts = groups[it.k] || []; o.tot += ts.length; o.arr += ts.filter(function (t) { return t.inAt; }).length; o.cap += it.seats || 6; }); return o; };
+    var lost = 0; Object.keys(groups).forEach(function (k) { if (!known[k]) lost += groups[k].length; });
+    var head = '<div class="bn" style="text-align:center">' + d.s.in + '<small> / ' + d.s.total + ' 人已入座</small></div>' +
+      '<div class="lg" style="justify-content:center;margin-top:6px"><span><i class="g"></i> 已報到並領禮</span><span><i class="b"></i> 已報到、未領禮</span><span><i style="background:#cbd5e1"></i> 還沒到</span><span><i style="background:#fff;border:1.5px solid #d1d5db;width:9px;height:9px"></i> 空位</span></div>';
+    var tail = (lost ? '<div class="org" style="margin-top:6px">有 ' + lost + ' 人的桌次不在桌位圖上(桌號對不上),請檢查「桌位」分頁或賓客桌次。</div>' : '') +
+      (noTable ? '<div class="org" style="margin-top:6px">還有 ' + noTable + ' 位貴賓尚未排桌,不會出現在圖上。</div>' : '');
+    var svg, title;
+    if (selTent) {
+      var z = selTent, ts0 = byZone[z] || [], K = 5, minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+      ts0.forEach(function (it) { var cx = it.x * K, cy = it.y * K; minX = Math.min(minX, cx - 75); maxX = Math.max(maxX, cx + 75); minY = Math.min(minY, cy - 75); maxY = Math.max(maxY, cy + 75); });
+      if (!ts0.length) { minX = minY = -100; maxX = maxY = 100; }
+      var inner = '';
+      ts0.forEach(function (it) {
+        var ts = (groups[it.k] || []).slice().sort(function (a, b) { return rank(a) - rank(b) || suffix(a) - suffix(b); });
+        var arrived = ts.filter(function (t) { return t.inAt; }).length, full = ts.length > 0 && arrived === ts.length, cap = Math.max(it.seats || 6, ts.length);
+        var top = Math.ceil(cap / 2), bot = cap - top, seats = '', cx = it.x * K, cy = it.y * K;
+        for (var i = 0; i < cap; i++) {
+          var row = i < top ? 0 : 1, n = row ? bot : top, j = row ? i - top : i, sx = (j - (n - 1) / 2) * 30, sy = row ? 28 : -28, t = ts[i];
+          var fill = t ? ['#16a34a', '#38bdf8', '#cbd5e1'][rank(t)] : '#fff';
+          seats += '<circle cx="' + sx + '" cy="' + sy + '" r="10" fill="' + fill + '" stroke="' + (t ? fill : '#d1d5db') + '" stroke-width="1.5"/>';
+        }
+        inner += '<g class="mt' + (selTable === it.k ? ' sel' : '') + '" data-k="' + esc(it.k) + '"><g transform="translate(' + cx + ' ' + cy + ') rotate(' + (it.rot || 0) + ')">' +
+          '<rect class="tc" x="-47" y="-18" width="94" height="36" rx="6" fill="' + (full ? '#dcfce7' : '#f1f5f9') + '" stroke="' + (full ? '#16a34a' : '#94a3b8') + '" stroke-width="2"/>' + seats + '</g>' +
+          '<text x="' + cx + '" y="' + (cy + 1) + '" text-anchor="middle" font-size="17" font-weight="900" fill="#111827">' + esc(it.k) + '</text>' +
+          '<text x="' + cx + '" y="' + (cy + 14) + '" text-anchor="middle" font-size="11" fill="#6b7280">' + arrived + '/' + ts.length + '</text></g>';
+      });
+      var st = stat(z), tinfo = tents.filter(function (t) { return t.k === z; })[0];
+      svg = '<svg viewBox="' + (minX - 10) + ' ' + (minY - 10) + ' ' + (maxX - minX + 20) + ' ' + (maxY - minY + 20) + '" role="img" aria-label="' + esc(z) + ' 帳篷">' + inner + '</svg>';
+      title = '<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px"><button class="link" id="floorBack">← 回全場</button><b>' + esc(z) + ' 帳篷' + (tinfo && tinfo.note ? '(' + esc(tinfo.note) + ')' : '') + '・已到 ' + st.arr + ' / ' + st.tot + '</b></div>';
+    } else {
+      var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      tents.concat(marks).forEach(function (it) { x0 = Math.min(x0, it.x - it.w / 2); x1 = Math.max(x1, it.x + it.w / 2); y0 = Math.min(y0, it.y - it.h / 2); y1 = Math.max(y1, it.y + it.h / 2); });
+      var parts = '';
+      marks.forEach(function (it) {
+        var isPub = it.note === '民眾', label = esc(it.k) + (isPub ? '  ' + pub.i + ' / ' + pub.n + ' 人' : ''), tall = it.h > it.w * 1.5, rx = it.x - it.w / 2, ry = it.y - it.h / 2;
+        parts += '<rect x="' + rx + '" y="' + ry + '" width="' + it.w + '" height="' + it.h + '" rx="12" fill="' + (isPub ? '#e0f2fe' : '#ede9fe') + '" stroke="' + (isPub ? '#7dd3fc' : '#c4b5fd') + '"/>';
+        if (tall) { var chars = Array.from(String(it.k)), step = Math.min(30, (it.h - 20) / chars.length), sy = it.y - (chars.length - 1) * step / 2 + 8;
+          parts += chars.map(function (c, i) { return '<text x="' + it.x + '" y="' + (sy + i * step) + '" text-anchor="middle" font-size="24" font-weight="700" fill="#6d28d9">' + esc(c) + '</text>'; }).join(''); }
+        else parts += '<text x="' + it.x + '" y="' + (it.y + 9) + '" text-anchor="middle" font-size="26" font-weight="700" fill="' + (isPub ? '#0369a1' : '#6d28d9') + '">' + label + '</text>';
+      });
+      tents.forEach(function (it) {
+        var st = stat(it.k), ratio = st.tot ? st.arr / st.tot : 0, pts = [];
+        for (var i = 0; i < 16; i++) { var a = i * Math.PI / 8 - Math.PI / 2, f = i % 2 ? 0.74 : 1; pts.push((it.x + (it.w / 2) * f * Math.cos(a)).toFixed(1) + ',' + (it.y + (it.h / 2) * f * Math.sin(a)).toFixed(1)); }
+        var col = 'rgb(' + Math.round(254 + (134 - 254) * ratio) + ',' + Math.round(243 + (239 - 243) * ratio) + ',' + Math.round(199 + (172 - 199) * ratio) + ')';
+        parts += '<g class="tentg" data-z="' + esc(it.k) + '" style="cursor:pointer"><polygon points="' + pts.join(' ') + '" fill="' + col + '" stroke="#d97706" stroke-width="3"/>' +
+          '<text x="' + it.x + '" y="' + (it.y - 6) + '" text-anchor="middle" font-size="44" font-weight="900" fill="#111827">' + esc(it.k) + '</text>' +
+          '<text x="' + it.x + '" y="' + (it.y + 30) + '" text-anchor="middle" font-size="26" font-weight="700" fill="#374151">' + st.arr + '/' + st.tot + '</text>' +
+          '<text x="' + it.x + '" y="' + (it.y + 56) + '" text-anchor="middle" font-size="17" fill="#6b7280">' + esc(it.note || '') + '</text></g>';
+      });
+      svg = '<svg viewBox="' + (x0 - 20) + ' ' + (y0 - 20) + ' ' + (x1 - x0 + 40) + ' ' + (y1 - y0 + 40) + '" role="img" aria-label="場地全圖">' + parts + '</svg>';
+      title = '<h4>場地全圖(點帳篷放大看每張桌;顏色越綠代表越多人到)</h4>';
+    }
+    return head + title + '<div class="mapw">' + svg + '</div><div id="tdet"></div>' + tail;
+  }
   function dashMap(d) {
+    if ((L.items || []).some(function (i) { return i.kind === 'tent'; })) return dashFloor(d);
     var s = d.s, rank = function (t) { return t.inAt && t.giftAt ? 0 : (t.inAt ? 1 : 2); }, CELL = 120;
     var groups = {}, noTable = 0;
     d.l.forEach(function (t) { var k = String(t.table || '').trim(); if (!k) { noTable++; return; } (groups[k] = groups[k] || []).push(t); });
@@ -502,6 +567,8 @@
     $('result').innerHTML = '<div class="card dash"><div class="seg">' + DASH_STYLES.map(function (x) {
       return '<button data-s="' + x[0] + '" class="' + (dashStyle === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       body + dashDesks(s) + dashDiets(s) + dashRecent(d) + '<button class="link" id="dRoster">👥 查看誰還沒到(名冊)</button></div>';
+    [].forEach.call($('result').querySelectorAll('.tentg'), function (g) { g.onclick = function () { selTent = g.dataset.z; selTable = ''; renderDash(); window.scrollTo(0, 0); }; });
+    if ($('floorBack')) $('floorBack').onclick = function () { selTent = ''; selTable = ''; renderDash(); };
     [].forEach.call($('result').querySelectorAll('.mt'), function (g) {
       g.onclick = function () { selTable = (selTable === g.dataset.k ? '' : g.dataset.k); renderDash(); };
     });

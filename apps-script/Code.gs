@@ -9,7 +9,7 @@
  *   紀錄  — 每次報到/領禮/撤銷的流水帳
  */
 
-var SHEET = { GUESTS: '名單', PUBLIC: '民眾', RSVP: '回函', TICKETS: '票券', SETTINGS: '設定', LOG: '紀錄', MAIL: '寄信紀錄' };
+var SHEET = { GUESTS: '名單', PUBLIC: '民眾', RSVP: '回函', TICKETS: '票券', SETTINGS: '設定', LOG: '紀錄', MAIL: '寄信紀錄', LAYOUT: '桌位' };
 var MAX_PARTY = 4; // 本人 + 最多 3 位攜伴
 var COLS = 14;
 var TICKET_HEADERS = ['票號', '代號', '姓名', '單位', '類別', '葷素', '桌次', '報到禮',
@@ -30,6 +30,8 @@ function onOpen() {
     .addItem('⑧ 補寄電子憑證(寄給還沒收到的人)', 'menuMailSend')
     .addItem('⑨ 寄一封測試信給我自己', 'menuMailTest')
     .addItem('⑩ 關閉自動寄信', 'menuMailOff')
+    .addSeparator()
+    .addItem('⑪ 建立 / 重排「桌位圖」版面', 'menuLayout')
     .addToUi();
 }
 
@@ -128,7 +130,7 @@ function setup() {
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
   ensureSheet_(ss, SHEET.MAIL, ['時間', '代號', '姓名', '信箱', '結果']);
-  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾'].forEach(function (nm) {
+  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾', '每桌座位數'].forEach(function (nm) {
     var v = s.getRange(1, 1, s.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim(); });
     if (v.indexOf(nm) < 0) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([[nm, '']]);
   });
@@ -500,7 +502,56 @@ function readTickets_() {
 
 function snapshot_() {
   var list = readTickets_().list.map(function (t) { delete t.row; return t; });
-  return { ok: true, tickets: list, at: new Date().getTime() };
+  var layout = { items: [], seats: 10 };
+  try { layout = readLayout_(); } catch (e) {}
+  return { ok: true, tickets: list, layout: layout, at: new Date().getTime() };
+}
+
+/**
+ * 場地桌位圖的版面:讀「桌位」分頁。
+ *   桌號 | 欄 | 列 | 座位數 | 寬 | 高 | 說明
+ * 桌號是一般號碼/名稱 → 畫成圓桌(欄、列是方格座標,從 1 開始);桌號以 # 開頭(例:#舞台、#入口)→ 畫成標示方塊(寬、高是佔幾格)。
+ * 座位數沒填就用「設定」分頁的「每桌座位數」(預設 10)。沒有「桌位」分頁時回傳空的,網頁會自動排列。
+ */
+function readLayout_() {
+  var seats = parseInt(getSetting_('每桌座位數'), 10) || 10, items = [];
+  var sh = ss_().getSheetByName(SHEET.LAYOUT);
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(function (r) {
+      var k = String(r[0]).trim(), x = parseInt(r[1], 10), y = parseInt(r[2], 10);
+      if (!k || !(x >= 1) || !(y >= 1)) return;
+      var special = k.charAt(0) === '#';
+      items.push({ k: special ? k.slice(1) : k, x: x, y: y, special: special,
+        seats: parseInt(r[3], 10) || 0, w: parseInt(r[4], 10) || 1, h: parseInt(r[5], 10) || 1, note: String(r[6] || '').trim() });
+    });
+  }
+  return { items: items, seats: seats };
+}
+
+/** 選單:依「名單」「民眾」目前有的桌次,產生「桌位」分頁的起始版面(整齊的格子 + 舞台),再自己改欄、列對照場地圖 */
+function menuLayout() {
+  var ui = SpreadsheetApp.getUi(), ss = ss_();
+  var sh = ss.getSheetByName(SHEET.LAYOUT);
+  if (sh && sh.getLastRow() >= 2) {
+    var yn = ui.alert('「桌位」分頁已經有資料,要整個重排嗎?(你改過的欄、列會被覆蓋)', ui.ButtonSet.YES_NO);
+    if (yn !== ui.Button.YES) return;
+  }
+  var gs = readGuests_(), seen = {};
+  Object.keys(gs.byCode).forEach(function (k) { var t = String(gs.byCode[k].table || '').trim(); if (t) seen[t] = true; });
+  var tabs = Object.keys(seen).sort(function (a, b) {
+    var na = parseFloat(a), nb = parseFloat(b);
+    return (!isNaN(na) && !isNaN(nb)) ? na - nb : (a < b ? -1 : a > b ? 1 : 0);
+  });
+  if (!tabs.length) { ui.alert('「名單」和「民眾」都還沒有排桌次,先排好桌次再按這個選單。'); return; }
+  var cols = Math.max(3, Math.ceil(Math.sqrt(tabs.length * 1.3)));
+  var rows = [['桌號', '欄', '列', '座位數', '寬', '高', '說明'], ['#舞台', 1, 1, '', cols, 1, '']];
+  tabs.forEach(function (t, i) { rows.push([t, (i % cols) + 1, Math.floor(i / cols) + 2, '', '', '', '']); });
+  if (!sh) sh = ss.insertSheet(SHEET.LAYOUT);
+  sh.clear();
+  sh.getRange(1, 1, rows.length, 7).setValues(rows);
+  sh.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#e8eaed');
+  sh.setFrozenRows(1);
+  ui.alert('已建立「桌位」分頁(' + tabs.length + ' 桌,先排成 ' + cols + ' 欄的格子)。\n\n對照場地圖修改「欄」「列」就能移動桌子(從 1 開始,欄往右、列往下);\n桌號以 # 開頭的是標示方塊(舞台、入口…),「寬」「高」是佔幾格。\n報到網頁的「概況 → 桌位圖」約 8 秒後會更新。');
 }
 
 /**

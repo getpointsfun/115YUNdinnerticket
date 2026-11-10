@@ -88,6 +88,9 @@
   .dots { display:flex; flex-wrap:wrap; gap:4px; margin:10px 0 6px; }
   .dots i, .lg i { display:inline-block; width:12px; height:12px; border-radius:50%; background:#e5e7eb; }
   .dots i.g, .lg i.g { background:#16a34a; } .dots i.b, .lg i.b { background:#38bdf8; }
+  .mapw { overflow-x:auto; margin:4px -6px 0; padding:0 6px; } .mapw svg { display:block; width:100%; height:auto; }
+  .mt { cursor:pointer; } .mt.sel circle.tc { stroke:#2563eb; stroke-width:3.5; }
+  #tdet { margin-top:10px; } #tdet .tl { margin-top:4px; } #tdet h5 { margin:0 0 4px; font-size:16px; }
   .lg { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; color:var(--mute); } .lg i { margin-right:4px; vertical-align:-1px; }
   .chipsd { display:flex; gap:8px; flex-wrap:wrap; } .cd { background:#f3f4f6; border-radius:999px; padding:6px 12px; font-size:15px; } .cd b { margin-left:4px; }
   .dr { display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:7px 0; border-top:1px solid var(--line); align-items:center; }
@@ -199,11 +202,12 @@
   }
 
   /* ───── 本機暫存(斷網也能繼續) ───── */
-  function saveLocal() { store.set('snap', JSON.stringify(list())); store.set('queue', JSON.stringify(Q)); }
+  function saveLocal() { store.set('snap', JSON.stringify(list())); store.set('queue', JSON.stringify(Q)); store.set('layout', JSON.stringify(L)); }
   function restoreLocal() {
     try {
       JSON.parse(store.get('snap') || '[]').forEach(function (t) { T[norm(t.code)] = t; });
       Q = JSON.parse(store.get('queue') || '[]');
+      var lo = JSON.parse(store.get('layout') || 'null'); if (lo && lo.items) L = lo;
     } catch (e) {}
   }
 
@@ -220,7 +224,8 @@
     Q.forEach(function (op) { (op.codes || [op.code]).forEach(function (c) { s[norm(c)] = 1; }); });
     return s;
   }
-  function mergeSnapshot(arr) {
+  function mergeSnapshot(arr, layout) {
+    if (layout && layout.items) L = layout;
     var pend = pendingCodes(), n = {};
     arr.forEach(function (t) { var k = norm(t.code); n[k] = (pend[k] && T[k]) ? T[k] : t; });
     T = n; saveLocal(); renderStats();
@@ -232,7 +237,7 @@
     google.script.run.withSuccessHandler(function (r) {
       pulling = false;
       if (r && r.auth === false) { showLogin(r.error); return; }
-      if (r && r.ok) { online = true; mergeSnapshot(r.tickets); renderSync(); if (cb) cb(true); }
+      if (r && r.ok) { online = true; mergeSnapshot(r.tickets, r.layout); renderSync(); if (cb) cb(true); }
       else { renderSync(); if (cb) cb(false); }
     }).withFailureHandler(function () {
       pulling = false; online = false; renderSync(); if (cb) cb(false);
@@ -348,8 +353,9 @@
   $('boardBtn').onclick = function () { $('board').classList.toggle('hidden'); renderBoard(); };
 
   /* ───── 概況(一打開就看到的數據看板;全部用手機上的資料即時計算) ───── */
-  var DASH_STYLES = [['ring', '圓環'], ['tile', '數字'], ['dots', '點陣']];
-  var dashStyle = store.get('dash') || 'ring';
+  var DASH_STYLES = [['map', '桌位圖'], ['ring', '圓環'], ['tile', '數字'], ['dots', '點陣']];
+  var dashStyle = store.get('dash2') || 'map';
+  var L = { items: [], seats: 10 }, selTable = '';
   function dashData() {
     var l = list(), s = computeStats(), byType = {};
     l.forEach(function (t) { var k = t.type || '未分類'; var o = byType[k] = byType[k] || { n: 0, i: 0, g: 0 }; o.n++; if (t.inAt) o.i++; if (t.giftAt) o.g++; });
@@ -426,6 +432,64 @@
       '<h4>報到禮(剩餘 / 總數)</h4><div class="tg">' + Object.keys(s.gifts).map(function (k) { var g = s.gifts[k];
         return '<div class="t1"><span>🎁 ' + esc(k) + '</span><b>' + (g.total - g.given) + '<em> / ' + g.total + '</em></b></div>'; }).join('') + '</div>';
   }
+
+  function dashMap(d) {
+    var s = d.s, rank = function (t) { return t.inAt && t.giftAt ? 0 : (t.inAt ? 1 : 2); }, CELL = 120;
+    var groups = {}, noTable = 0;
+    d.l.forEach(function (t) { var k = String(t.table || '').trim(); if (!k) { noTable++; return; } (groups[k] = groups[k] || []).push(t); });
+    var keys = Object.keys(groups).sort(function (a, b) { var na = parseFloat(a), nb = parseFloat(b); return (!isNaN(na) && !isNaN(nb)) ? na - nb : (a < b ? -1 : a > b ? 1 : 0); });
+    var items = (L.items || []).map(function (x) { return x; }), placed = {}, maxX = 1, maxY = 1;
+    items.forEach(function (it) { if (!it.special) placed[it.k] = 1; maxX = Math.max(maxX, it.x + (it.special ? it.w : 1) - 1); maxY = Math.max(maxY, it.y + (it.special ? it.h : 1) - 1); });
+    var cols;
+    if (!items.length) {                                   // 還沒建立「桌位」分頁:自動排成格子,上方放舞台
+      cols = Math.max(3, Math.ceil(Math.sqrt(keys.length * 1.3)));
+      items.push({ k: '舞台', special: true, x: 1, y: 1, w: cols, h: 1 });
+      keys.forEach(function (k, i) { items.push({ k: k, x: i % cols + 1, y: Math.floor(i / cols) + 2, seats: 0 }); });
+      maxX = cols; maxY = Math.floor((keys.length - 1) / cols) + 2;
+    } else {                                               // 有票但版面沒列到的桌:排在最下面
+      cols = Math.max(maxX, 4);
+      keys.filter(function (k) { return !placed[k]; }).forEach(function (k, i) { items.push({ k: k, x: i % cols + 1, y: maxY + 1 + Math.floor(i / cols), seats: 0 }); });
+      items.forEach(function (it) { maxY = Math.max(maxY, it.y + (it.special ? it.h : 1) - 1); });
+    }
+    var svg = '<svg viewBox="0 0 ' + (cols * CELL) + ' ' + (maxY * CELL) + '" style="min-width:' + Math.max(280, cols * 44) + 'px" role="img" aria-label="場地桌位圖">';
+    items.forEach(function (it) {
+      var x0 = (it.x - 1) * CELL, y0 = (it.y - 1) * CELL;
+      if (it.special) {
+        var w = it.w * CELL - 16, h = it.h > 1 ? it.h * CELL - 16 : 48, yy = it.h > 1 ? y0 + 8 : y0 + (CELL - 48) / 2;
+        svg += '<rect x="' + (x0 + 8) + '" y="' + yy + '" width="' + w + '" height="' + h + '" rx="10" fill="#ede9fe" stroke="#c4b5fd"/>' +
+          '<text x="' + (x0 + 8 + w / 2) + '" y="' + (yy + h / 2 + 6) + '" text-anchor="middle" font-size="19" font-weight="700" fill="#6d28d9">' + esc(it.k) + '</text>';
+        return;
+      }
+      var ts = (groups[it.k] || []).slice().sort(function (a, b) { return rank(a) - rank(b) || suffix(a) - suffix(b); });
+      var arrived = ts.filter(function (t) { return t.inAt; }).length, full = ts.length > 0 && arrived === ts.length;
+      var cap = Math.max(it.seats || L.seats || 10, ts.length), cx = x0 + CELL / 2, cy = y0 + CELL / 2;
+      var sr = cap > 12 ? 5.5 : 7.5, rr = 40 + (cap > 12 ? (cap - 12) * 1.3 : 0);
+      var seats = '';
+      for (var i = 0; i < cap; i++) {
+        var a = (i / cap) * 2 * Math.PI - Math.PI / 2, px = cx + rr * Math.cos(a), py = cy + rr * Math.sin(a), t = ts[i];
+        var fill = t ? ['#16a34a', '#38bdf8', '#cbd5e1'][rank(t)] : '#fff';
+        seats += '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="' + sr + '" fill="' + fill + '" stroke="' + (t ? fill : '#d1d5db') + '" stroke-width="1.5"/>';
+      }
+      var label = String(it.k), fs = label.length > 3 ? 15 : 24;
+      svg += '<g class="mt' + (selTable === it.k ? ' sel' : '') + '" data-k="' + esc(it.k) + '">' +
+        '<circle class="tc" cx="' + cx + '" cy="' + cy + '" r="29" fill="' + (full ? '#dcfce7' : '#f3f4f6') + '" stroke="' + (full ? '#16a34a' : '#d1d5db') + '" stroke-width="2"/>' + seats +
+        '<text x="' + cx + '" y="' + (cy + 1) + '" text-anchor="middle" font-size="' + fs + '" font-weight="900" fill="#111827">' + esc(label) + '</text>' +
+        '<text x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle" font-size="12" fill="#6b7280">' + arrived + '/' + ts.length + '</text></g>';
+    });
+    svg += '</svg>';
+    return '<div class="bn" style="text-align:center">' + s.in + '<small> / ' + s.total + ' 人已入座</small></div>' +
+      '<div class="lg" style="justify-content:center;margin-top:6px"><span><i class="g"></i> 已報到並領禮</span><span><i class="b"></i> 已報到、未領禮</span><span><i style="background:#cbd5e1"></i> 還沒到</span><span><i style="background:#fff;border:1.5px solid #d1d5db;width:9px;height:9px"></i> 空位</span></div>' +
+      '<h4>場地桌位圖(點桌子看名單)</h4><div class="mapw">' + svg + '</div><div id="tdet"></div>' +
+      (noTable ? '<div class="org" style="margin-top:6px">還有 ' + noTable + ' 人尚未排桌,不會出現在圖上。</div>' : '') +
+      '<h4>各類別(已到 / 預計)</h4><div class="tg">' + d.types.map(function (k) { var o = d.byType[k];
+        return '<div class="t1"><span>' + esc(k) + '</span><b>' + o.i + '<em> / ' + o.n + '</em></b></div>'; }).join('') + '</div>';
+  }
+  function tableDetail(k, d) {
+    var rank = function (t) { return t.inAt && t.giftAt ? 0 : (t.inAt ? 1 : 2); };
+    var ts = d.l.filter(function (t) { return String(t.table || '').trim() === k; }).sort(function (a, b) { return rank(a) - rank(b) || suffix(a) - suffix(b); });
+    return '<div class="tb open" style="cursor:default"><div class="th"><b>第 ' + esc(k) + ' 桌</b><span>' + ts.filter(function (t) { return t.inAt; }).length + '/' + ts.length + ' 已到</span></div><div class="tl">' +
+      (ts.length ? ts.map(function (t) { return '<div class="tr"><span>' + esc(t.name || t.code) + '</span><em class="' + ['g', 'b', 'n'][rank(t)] + '">' + (t.inAt ? (t.giftAt ? '已報到' : '未領禮') : '未到') + '</em></div>'; }).join('') : '<div class="tr"><span>這桌還沒有人</span></div>') + '</div></div>';
+  }
   function renderDash() {
     dashOn = true; cur = ''; $('banner').innerHTML = '';
     var s = computeStats();
@@ -434,12 +498,16 @@
       return;
     }
     var d = dashData();
-    var body = dashStyle === 'tile' ? dashTile(d) : (dashStyle === 'dots' ? dashDots(d) : dashRing(d));
+    var body = dashStyle === 'map' ? dashMap(d) : (dashStyle === 'tile' ? dashTile(d) : (dashStyle === 'dots' ? dashDots(d) : dashRing(d)));
     $('result').innerHTML = '<div class="card dash"><div class="seg">' + DASH_STYLES.map(function (x) {
       return '<button data-s="' + x[0] + '" class="' + (dashStyle === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       body + dashDesks(s) + dashDiets(s) + dashRecent(d) + '<button class="link" id="dRoster">👥 查看誰還沒到(名冊)</button></div>';
-    [].forEach.call($('result').querySelectorAll('.tb'), function (c) { c.onclick = function () { c.querySelector('.tl').classList.toggle('hidden'); c.classList.toggle('open'); }; });
-    [].forEach.call($('result').querySelectorAll('.seg button'), function (b) { b.onclick = function () { dashStyle = b.dataset.s; store.set('dash', dashStyle); renderDash(); }; });
+    [].forEach.call($('result').querySelectorAll('.mt'), function (g) {
+      g.onclick = function () { selTable = (selTable === g.dataset.k ? '' : g.dataset.k); renderDash(); };
+    });
+    if (dashStyle === 'map' && selTable && $('tdet')) $('tdet').innerHTML = tableDetail(selTable, d);
+    [].forEach.call($('result').querySelectorAll('.tb:not(.open)'), function (c) { c.onclick = function () { c.querySelector('.tl').classList.toggle('hidden'); c.classList.toggle('open'); }; });
+    [].forEach.call($('result').querySelectorAll('.seg button'), function (b) { b.onclick = function () { dashStyle = b.dataset.s; store.set('dash2', dashStyle); renderDash(); }; });
     $('dRoster').onclick = function () {
       rFilter = 'waiting';
       if ($('roster').classList.contains('hidden')) $('rosterBtn').click(); else renderRoster();

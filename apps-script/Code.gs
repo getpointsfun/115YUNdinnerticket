@@ -30,6 +30,7 @@ function onOpen() {
     .addItem('⑧ 補寄電子憑證(寄給還沒收到的人)', 'menuMailSend')
     .addItem('⑨ 寄一封測試信給我自己', 'menuMailTest')
     .addItem('⑩ 關閉自動寄信', 'menuMailOff')
+    .addItem('⑬ 寄民眾報到憑證(「民眾」分頁有姓名+信箱的)', 'menuMailPublic')
     .addSeparator()
     .addItem('⑪ 建立 / 重排「桌位圖」版面(圓桌)', 'menuLayout')
     .addItem('⑫ 建立「帳篷版」桌位圖(7 頂帳篷、56 張長桌)', 'menuLayoutTents')
@@ -120,7 +121,7 @@ function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   PropertiesService.getScriptProperties().setProperty('SSID', ss.getId());
   ensureSheet_(ss, SHEET.GUESTS, ['代號', '姓名', '單位', '類別', '桌次', '報到禮', '備註']);
-  ensureSheet_(ss, SHEET.PUBLIC, ['代號', '姓名', '單位', '類別', '桌次', '報到禮', '備註', '狀態']);
+  ensureSheet_(ss, SHEET.PUBLIC, ['代號', '姓名', '單位', '類別', '桌次', '報到禮', '備註', '狀態', '信箱']);
   ensureSheet_(ss, SHEET.RSVP, ['時間戳記', '代號', '是否出席', '出席人數', '本人葷素', '攜伴1葷素', '攜伴2葷素', '攜伴3葷素']);
   var t = ensureSheet_(ss, SHEET.TICKETS, TICKET_HEADERS);
   t.getRange('I:I').setNumberFormat('MM/dd HH:mm:ss');
@@ -777,32 +778,35 @@ function mailQrBlob_(code) {
   return null;
 }
 
-function mailContent_(name, code, n, base, contact, hasCard) {
+function mailContent_(name, code, n, base, contact, hasCard, pub) {
   contact = String(contact || '').trim();
   var C = String(code).toUpperCase();
   var link = (base ? base + (base.indexOf('?') < 0 ? '?' : '&') + 'page=me&c=' + encodeURIComponent(C) : '');
-  var people = n > 1 ? '共 ' + n + ' 位(含您本人)' : '您本人 1 位';
-  var subject = '【' + MAIL_EVENT.title + '】' + name + ' 貴賓的電子報到憑證';
-  var text = name + ' 貴賓 您好:\n\n感謝您回覆出席「' + MAIL_EVENT.title + '」。\n' +
+  var people = pub ? '民眾本人 1 位(不開放攜伴)' : (n > 1 ? '共 ' + n + ' 位(含您本人)' : '您本人 1 位');
+  var who = pub ? '您好' : '貴賓 您好', kindName = pub ? '民眾' : '貴賓';
+  var intro = pub ? '恭喜您完成消費集點,取得「' + MAIL_EVENT.title + '」的入席資格。' : '感謝您回覆出席「' + MAIL_EVENT.title + '」。';
+  var rule = pub ? '本憑證限本人使用,不開放攜伴,請勿轉傳。' : '同行貴賓共用同一張憑證,請勿轉傳。';
+  var subject = '【' + MAIL_EVENT.title + '】' + name + (pub ? ' 的民眾電子報到憑證' : ' 貴賓的電子報到憑證');
+  var text = name + ' ' + who + ':\n\n' + intro + '\n' +
     '時間:' + MAIL_EVENT.when + '\n地點:' + MAIL_EVENT.where + '\n出席:' + people + '\n\n' +
-    '您的報到代號:' + C + '\n活動當天請於報到處出示此信中的 QR Code(手機畫面或列印皆可),或紙本「貴賓報到憑證」,掃描後即可入席並領取報到禮。同行貴賓共用同一張憑證,請勿轉傳。\n' +
+    '您的報到代號:' + C + '\n活動當天請於報到處出示此信中的 QR Code(手機畫面或列印皆可),掃描後即可入席並領取報到禮。' + rule + '\n' +
     (link ? '\n若信中圖片未顯示,請開啟:' + link + '(需輸入姓名)\n' : '') +
-    '\n如需更改出席人數或葷素,請於 11 月 20 日(五)前回覆本信或來電聯絡。' + (contact ? '\n\n' + contact : '');
+    (pub ? '\n如有問題,請回覆本信或來電聯絡。' : '\n如需更改出席人數或葷素,請於 11 月 20 日(五)前回覆本信或來電聯絡。') + (contact ? '\n\n' + contact : '');
   var html = '<div style="font-family:-apple-system,\'Noto Sans TC\',\'Microsoft JhengHei\',sans-serif;max-width:480px;margin:auto;color:#222;line-height:1.7">' +
     '<h2 style="margin:0 0 4px;color:#7a3e9d">' + escHtml_(MAIL_EVENT.title) + '</h2>' +
-    '<div style="color:#666;margin-bottom:14px">貴賓電子報到憑證</div>' +
-    '<p>' + escHtml_(name) + ' 貴賓 您好:<br>感謝您回覆出席。以下是您的報到憑證,活動當天請出示。</p>' +
+    '<div style="color:#666;margin-bottom:14px">' + kindName + '電子報到憑證</div>' +
+    '<p>' + escHtml_(name) + ' ' + who + ':<br>' + escHtml_(intro) + '以下是您的報到憑證,活動當天請出示。</p>' +
     (hasCard
-      ? '<div style="text-align:center"><img src="cid:card" alt="貴賓報到憑證" width="360" style="display:block;margin:0 auto;max-width:100%;height:auto;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.25)">' +
+      ? '<div style="text-align:center"><img src="cid:card" alt="報到憑證" width="360" style="display:block;margin:0 auto;max-width:100%;height:auto;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.25)">' +
         '<div style="color:#666;margin-top:8px">代號 ' + escHtml_(C) + '・' + escHtml_(people) + '</div></div>'
       : '<div style="border:1px solid #ddd;border-radius:12px;padding:16px;text-align:center">' +
         '<img src="cid:qr" alt="報到 QR Code" width="240" height="240" style="display:block;margin:0 auto 8px">' +
         '<div style="font-size:26px;font-weight:800;letter-spacing:3px">' + escHtml_(C) + '</div>' +
         '<div style="color:#666;margin-top:4px">' + escHtml_(people) + '</div></div>') +
     '<p style="margin-top:14px"><b>時間</b>:' + escHtml_(MAIL_EVENT.when) + '<br><b>地點</b>:' + escHtml_(MAIL_EVENT.where) + '</p>' +
-    '<p>請於報到處出示此 QR Code(手機畫面或列印皆可),或紙本「貴賓報到憑證」,掃描後即可入席並領取報到禮。<b>同行貴賓共用一張憑證,請勿轉傳。</b></p>' +
+    '<p>請於報到處出示此 QR Code(手機畫面或列印皆可),掃描後即可入席並領取報到禮。<b>' + escHtml_(rule) + '</b></p>' +
     (link ? '<p style="font-size:13px;color:#666">圖片沒有顯示?<a href="' + escHtml_(link) + '">開啟我的電子憑證</a>(需輸入姓名)</p>' : '') +
-    '<p style="font-size:13px;color:#666">如需更改出席人數或葷素,請於 11 月 20 日(五)前回覆本信或來電聯絡。</p>' +
+    '<p style="font-size:13px;color:#666">' + (pub ? '如有問題,請回覆本信或來電聯絡。' : '如需更改出席人數或葷素,請於 11 月 20 日(五)前回覆本信或來電聯絡。') + '</p>' +
     (contact ? '<p style="font-size:13px;color:#666;border-top:1px solid #eee;padding-top:10px">' + escHtml_(contact).replace(/\n/g, '<br>') + '</p>' : '') + '</div>';
   return { subject: subject, text: text, html: html };
 }
@@ -832,11 +836,11 @@ function mailCardBlob_(code) {
   return null;
 }
 
-function mailSendOne_(to, name, code, n) {
+function mailSendOne_(to, name, code, n, pub) {
   var bad = mailFromProblem_();
   if (bad) throw new Error(bad);
   var card = mailCardBlob_(code);
-  var c = mailContent_(name, code, n, getSetting_('報到網址'), getSetting_('信件聯絡資訊'), !!card);
+  var c = mailContent_(name, code, n, getSetting_('報到網址'), getSetting_('信件聯絡資訊'), !!card, !!pub);
   var opt = { name: getSetting_('寄件人名稱') || MAIL_FROM_DEFAULT, htmlBody: c.html };
   var want = getSetting_('寄件信箱');
   if (validEmail_(want)) opt.replyTo = want;   // 貴賓按「回覆」會回到這個信箱
@@ -936,4 +940,69 @@ function menuMailTest() {
   var g = gs.byCode[codes[0]] || { name: '王大明', code: 'VIP001' };
   var withQr = mailSendOne_(me, g.name, g.code, 2);
   ui.alert('已寄一封測試信到 ' + me + '(範例:' + g.name + '、' + String(g.code).toUpperCase() + '、含本人共 2 位)。' + (withQr ? '' : '\n⚠ QR 圖未能嵌入,請確認網路。'));
+}
+
+/* ───────────── 民眾:半自動寄憑證 ─────────────
+ * 流程:把合格民眾的姓名、信箱貼進「民眾」分頁(姓名 B 欄、信箱 I 欄)→ 選單 ⑬ → 自動建立票券並寄出憑證。
+ * 同一個「代號+信箱」只寄一次;已寄過的不會重寄。民眾不開放攜伴。 */
+
+function publicMailPending_() {
+  var sh = ss_().getSheetByName(SHEET.PUBLIC), sent = mailSent_(), todo = [], skipped = [], seenMail = {}, dup = 0;
+  if (!sh || sh.getLastRow() < 2) return { todo: todo, skipped: skipped, dup: 0 };
+  var head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn ? sh.getLastColumn() : 9, 9)).getValues()[0].map(function (h) { return String(h).trim(); });
+  var ce = head.indexOf('信箱'); if (ce < 0) ce = 8;
+  sh.getRange(2, 1, sh.getLastRow() - 1, ce + 1).getValues().forEach(function (r) {
+    var code = String(r[0]).trim(), name = String(r[1]).trim(), email = String(r[ce]).trim();
+    if (!code || !name) return;                                   // 沒填姓名 = 未啟用
+    if (!validEmail_(email)) { skipped.push({ name: name, why: '沒有有效的信箱' }); return; }
+    if (sent[norm_(code) + '|' + norm_(email)]) return;
+    if (seenMail[norm_(email)]) dup++;
+    seenMail[norm_(email)] = true;
+    todo.push({ code: code, name: name, email: email });
+  });
+  return { todo: todo, skipped: skipped, dup: dup };
+}
+
+/** 替「民眾」分頁已啟用、但還沒有票券的人建立票券(不碰貴賓的票) */
+function ensurePublicTickets_(codes) {
+  var d = readTickets_(), have = {};
+  d.list.forEach(function (t) { have[norm_(t.code)] = true; });
+  var last = d.sh.getLastRow(), rows = [];
+  codes.forEach(function (c) { if (!have[norm_(c)]) { rows.push(ticketRow_(c, c, 0, last + 1 + rows.length, '')); have[norm_(c)] = true; } });
+  if (rows.length) { d.sh.getRange(last + 1, 1, rows.length, COLS).setValues(rows); SpreadsheetApp.flush(); }
+  return rows.length;
+}
+
+function sendPublicMail_() {
+  return withLock_(function () {
+    var p = publicMailPending_(), sh = mailSheet_(), ok = 0, fail = 0, stop = '', now = new Date();
+    var made = ensurePublicTickets_(p.todo.map(function (r) { return r.code; }));
+    for (var i = 0; i < p.todo.length; i++) {
+      var r = p.todo[i], res;
+      if (MailApp.getRemainingDailyQuota() < 1) { stop = '今天的寄信額度用完了,剩下的 ' + (p.todo.length - i) + ' 人明天再按「⑬」。'; break; }
+      try { var withImg = mailSendOne_(r.email, r.name, r.code, 1, true); res = '已寄出' + (withImg ? '' : '(圖片未能嵌入,信中有連結)'); ok++; }
+      catch (e) { res = '失敗:' + String(e && e.message || e).slice(0, 80); fail++; }
+      sh.appendRow([now, r.code, r.name, r.email, res]);
+    }
+    return '已寄出 ' + ok + ' 封' + (fail ? ',失敗 ' + fail + ' 封(見「寄信紀錄」)' : '') + (made ? ';新建票券 ' + made + ' 張' : '') + '。' +
+      (stop ? '\n' + stop : '') +
+      (p.skipped.length ? '\n\n未寄出(共 ' + p.skipped.length + ' 人):\n' + p.skipped.slice(0, 15).map(function (x) { return '・' + x.name + ':' + x.why; }).join('\n') : '');
+  });
+}
+
+function menuMailPublic() {
+  var ui = SpreadsheetApp.getUi();
+  var bad = mailFromProblem_();
+  if (bad) { ui.alert('⚠ ' + bad); return; }
+  var p = publicMailPending_();
+  if (!p.todo.length) {
+    ui.alert('沒有需要寄的民眾。\n\n請確認「民眾」分頁:要寄的人,「姓名」(B 欄)和「信箱」(I 欄)都有填。' +
+      (p.skipped.length ? '\n\n未寄出(共 ' + p.skipped.length + ' 人):\n' + p.skipped.slice(0, 15).map(function (x) { return '・' + x.name + ':' + x.why; }).join('\n') : ''));
+    return;
+  }
+  var yn = ui.alert('將替 ' + p.todo.length + ' 位民眾建立票券並寄出報到憑證(今天剩餘寄信額度 ' + MailApp.getRemainingDailyQuota() + ' 封)。' +
+    (p.dup ? '\n⚠ 其中有 ' + p.dup + ' 筆信箱重複(同一個信箱拿到多個代號),請確認是不是同一人領了兩份。' : '') +
+    (p.skipped.length ? '\n另有 ' + p.skipped.length + ' 人沒有有效信箱,這次不會寄。' : '') + '\n\n確定要寄嗎?', ui.ButtonSet.YES_NO);
+  if (yn !== ui.Button.YES) return;
+  ui.alert(sendPublicMail_());
 }

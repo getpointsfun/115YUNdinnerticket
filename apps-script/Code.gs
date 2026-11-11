@@ -250,7 +250,13 @@ function readRsvps_(guests) {
     return first;
   };
   var cNote = col(function (h) { return h === '備註' || h.indexOf('過敏') >= 0 || h.indexOf('禁忌') >= 0; });
-  var cDiet = [col(has('本人')), col(has('攜伴1')), col(has('攜伴2')), col(has('攜伴3'))];
+  // 表單改過題目時,回函表會留下舊欄位(整欄空白)。每個位置收集「所有」符合的欄,每筆取第一個有填的。
+  var allCols = function (k) { var a = []; head.forEach(function (h, i) { if (h.indexOf(k) >= 0) a.push(i); }); return a; };
+  var cDiet = [allCols('本人'), allCols('攜伴1'), allCols('攜伴2'), allCols('攜伴3')];
+  var dietOf = function (row, cols) {
+    for (var q = 0; q < cols.length; q++) { var v = String(row[cols[q]]).trim(); if (v && v !== '無') return v; }
+    return '';
+  };
   if ((cCode < 0 && cName < 0) || (cComp < 0 && cTotal < 0)) {
     throw new Error('回函的表頭需要有「姓名」(或「代號」),以及「攜伴人數」(或「出席人數」)。目前表頭:' + head.join('、'));
   }
@@ -286,9 +292,9 @@ function readRsvps_(guests) {
       code: g.code, n: n, name: g.name,
       note: cNote >= 0 && !/^(無|沒有|没有|none|n\/a|-)?$/i.test(String(row[cNote]).trim()) ? String(row[cNote]).trim().replace(/\s+/g, ' ').slice(0, 40) : '',
       email: pickMail(row),
-      diets: cDiet.map(function (c) { var v = c >= 0 ? String(row[c]).trim() : ''; return v === '無' ? '' : v; })   // 方格題選「無」= 沒有這位
+      diets: cDiet.map(function (cols) { return dietOf(row, cols); })   // 方格題選「無」= 沒有這位
     };
-    if (n > 0 && cDiet[1] >= 0) {   // 攜伴人數 與 方格題填的攜伴數對不上 → 提醒人工確認
+    if (n > 0 && cDiet[1].length) {   // 攜伴人數 與 方格題填的攜伴數對不上 → 提醒人工確認
       var filled = out.map[norm_(g.code)].diets.slice(1).filter(function (d) { return d; }).length;
       if (filled !== n - 1) out.mismatch.push(g.name + ':攜伴人數填 ' + (n - 1) + ' 位,但飲食習慣只選了 ' + filled + ' 位攜伴');
     }

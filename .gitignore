@@ -2,3 +2,6 @@
 *.xlsx
 *.xls
 private/
+
+# 含個資的名單檔,不提交
+data/

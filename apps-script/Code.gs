@@ -11,9 +11,11 @@
 
 var SHEET = { GUESTS: '名單', PUBLIC: '民眾', RSVP: '回函', TICKETS: '票券', SETTINGS: '設定', LOG: '紀錄', MAIL: '寄信紀錄', LAYOUT: '桌位' };
 var MAX_PARTY = 4; // 本人 + 最多 3 位攜伴
-var COLS = 14;
+var COLS = 15;
+var DECLINED_FLAG = '回函不出席';
+var GUEST_FLAG = '現場來賓';
 var TICKET_HEADERS = ['票號', '代號', '姓名', '單位', '類別', '葷素', '桌次', '報到禮',
-  '報到時間', '報到處', '領禮時間', '領禮處', 'QR網址', 'QR圖'];
+  '報到時間', '報到處', '領禮時間', '領禮處', 'QR網址', 'QR圖', '標記'];
 
 /* ───────────── 試算表選單 ───────────── */
 
@@ -132,7 +134,7 @@ function setup() {
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
   ensureSheet_(ss, SHEET.MAIL, ['時間', '代號', '姓名', '信箱', '結果']);
-  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾', '每桌座位數'].forEach(function (nm) {
+  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾', '每桌座位數', '備用代號', '備用貴賓報到禮'].forEach(function (nm) {
     var v = s.getRange(1, 1, s.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim(); });
     if (v.indexOf(nm) < 0) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([[nm, '']]);
   });
@@ -310,7 +312,7 @@ function companionGift_() {
   return companionGiftCache_;
 }
 
-function ticketRow_(code, party, idx, r, diet) {
+function ticketRow_(code, party, idx, r, diet, flag) {
   var G = "'" + SHEET.GUESTS + "'!$A:$G", P = "'" + SHEET.PUBLIC + "'!$A:$G";
   var look = function (c, suffix) {   // 先找「名單」,找不到再找「民眾」
     return 'IFERROR(VLOOKUP($B' + r + ',' + G + ',' + c + ',FALSE)&"' + suffix + '",IFERROR(VLOOKUP($B' + r + ',' + P + ',' + c + ',FALSE)&"' + suffix + '",""))';
@@ -319,7 +321,7 @@ function ticketRow_(code, party, idx, r, diet) {
   var name = idx === 0 ? lk(2) : '=' + look(2, ' 的攜伴' + idx);
   var qrUrl = '=IF($A' + r + '="","","https://api.qrserver.com/v1/create-qr-code/?size=300x300&data="&ENCODEURL(UPPER($A' + r + ')))';
   var qrImg = '=IF($M' + r + '="","",IMAGE($M' + r + '))';
-  return [code, party, name, lk(3), lk(4), diet, lk(5), idx === 0 ? lk(6) : companionGift_(), '', '', '', '', qrUrl, qrImg];
+  return [code, party, name, lk(3), lk(4), diet, lk(5), idx === 0 ? lk(6) : companionGift_(), '', '', '', '', qrUrl, qrImg, flag || ''];
 }
 
 function generateTickets_() {
@@ -334,7 +336,7 @@ function generateTickets_() {
     if (last > 1) sh.getRange(2, 1, last - 1, 1).getValues().forEach(function (r, i) {
       if (r[0] !== '') existing[norm_(r[0])] = i + 2;
     });
-    var rows = [], added = 0, updated = 0, warns = [];
+    var rows = [], added = 0, updated = 0, warns = [], declined = 0;
     Object.keys(rsvps).forEach(function (k) {
       var r = rsvps[k];
       var party = r.code;
@@ -345,6 +347,7 @@ function generateTickets_() {
         var row = existing[norm_(code)];
         if (row) {
           if (diet) sh.getRange(row, 6).setValue(diet);
+          if (i === 0 && row > 0 && String(sh.getRange(row, 15).getValue()) === DECLINED_FLAG) sh.getRange(row, 15).setValue('');   // 改回出席:拿掉「不出席」標記
           updated++;
         } else {
           rows.push(ticketRow_(code, party, i, last + 1 + rows.length, diet));
@@ -352,11 +355,18 @@ function generateTickets_() {
           added++;
         }
       }
+      // 回函「不出席」:仍建立(或標記)一張本人票,現場掃到會提醒確認,不把人擋在門外
+      if (r.n === 0) {
+        var prow = existing[norm_(party)];
+        if (!prow) { rows.push(ticketRow_(party, party, 0, last + 1 + rows.length, '', DECLINED_FLAG)); existing[norm_(party)] = -1; added++; declined++; }
+        else if (prow > 0 && !String(sh.getRange(prow, 9).getValue()) && !String(sh.getRange(prow, 15).getValue())) { sh.getRange(prow, 15).setValue(DECLINED_FLAG); declined++; }
+        else declined++;
+      }
       // 人數減少時提醒,不自動刪除
       var p = norm_(party);
       Object.keys(existing).forEach(function (ek) {
         var idx = ek === p ? 0 : (ek.indexOf(p + '-') === 0 ? parseInt(ek.slice(p.length + 1), 10) : -1);
-        if (idx >= r.n && existing[ek] > 0) warns.push('票 ' + ek + ' 超出回函人數(' + r.n + '人),請確認是否要手動刪除該列');
+        if (idx >= Math.max(r.n, 1) && existing[ek] > 0) warns.push('票 ' + ek + ' 超出回函人數(' + r.n + '人),請確認是否要手動刪除該列');
       });
     });
     // 名單上還沒回函的貴賓:先建立本人一張票,手持報到 QR 到場也能報到
@@ -376,6 +386,7 @@ function generateTickets_() {
     rs.mismatch.forEach(function (m) { warns.push(m); });
     if (noRsvp) warns.push('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
+      (declined ? '\n其中 ' + declined + ' 位回函「不出席」:仍有票券並已標記,現場掃到會先提醒確認,不算進預計人數。' : '') +
       (pubAdded ? '\n其中民眾 ' + pubAdded + ' 位(「民眾」工作表中已填姓名的)。' : '') +
       (warns.length ? '\n\n⚠ 注意(共 ' + warns.length + ' 項):\n' + warns.slice(0, 20).join('\n') : '');
   });
@@ -418,6 +429,7 @@ function api(pin, action, arg) {
     case 'process': return withLock_(function () { return process_(arg); });
     case 'undo': return withLock_(function () { return undo_(arg); });
     case 'addMember': return withLock_(function () { return addMember_(arg); });
+    case 'addGuest': return withLock_(function () { return addGuest_(arg); });
     case 'setDiet': return withLock_(function () { return setDiet_(arg); });
     default: return { ok: false, error: '未知操作' };
   }
@@ -494,7 +506,7 @@ function readTickets_() {
   var sh = ss.getSheetByName(SHEET.TICKETS);
   var tz = ss.getSpreadsheetTimeZone();
   var n = Math.max(sh.getLastRow() - 1, 0);
-  var vals = n ? sh.getRange(2, 1, n, 12).getValues() : [];
+  var vals = n ? sh.getRange(2, 1, n, 15).getValues() : [];
   var list = [];
   vals.forEach(function (r, i) {
     if (String(r[0]).trim() === '') return;
@@ -502,7 +514,8 @@ function readTickets_() {
       row: i + 2, code: String(r[0]).trim(), party: String(r[1]).trim(),
       name: String(r[2]), org: String(r[3]), type: String(r[4]), diet: String(r[5]),
       table: String(r[6]), gift: String(r[7]),
-      inAt: fmtT_(r[8], tz), inDesk: String(r[9]), giftAt: fmtT_(r[10], tz), giftDesk: String(r[11])
+      inAt: fmtT_(r[8], tz), inDesk: String(r[9]), giftAt: fmtT_(r[10], tz), giftDesk: String(r[11]),
+      flag: String(r[14] || '')
     });
   });
   return { sh: sh, list: list };
@@ -512,7 +525,7 @@ function snapshot_() {
   var list = readTickets_().list.map(function (t) { delete t.row; return t; });
   var layout = { items: [], seats: 10 };
   try { layout = readLayout_(); } catch (e) {}
-  return { ok: true, tickets: list, layout: layout, at: new Date().getTime() };
+  return { ok: true, tickets: list, layout: layout, spare: spareRange_(), at: new Date().getTime() };
 }
 
 /**
@@ -706,6 +719,50 @@ function setDiet_(arg) {
   writeLogs_([[new Date(), String(arg.desk || '?'), '修改葷素', t.code, diet || '(清空)']]);
   markSeen_(arg.opId);
   return { ok: true };
+}
+
+/** 備用代號範圍:「設定」的「備用代號」,例 VIP232-VIP250(預設)。回 {prefix, from, to, width} */
+function spareRange_() {
+  var v = getSetting_('備用代號') || 'VIP232-VIP250';
+  var m = String(v).trim().match(/^([A-Za-z]*)(\d+)\s*[-~–]\s*[A-Za-z]*(\d+)$/);
+  if (!m) return null;
+  return { prefix: m[1].toUpperCase(), from: parseInt(m[2], 10), to: parseInt(m[3], 10), width: m[2].length };
+}
+function spareCode_(sp, n) { var d = String(n); while (d.length < sp.width) d = '0' + d; return sp.prefix + d; }
+function inSpare_(code) {
+  var sp = spareRange_(); if (!sp) return false;
+  var m = String(code).trim().toUpperCase().match(/^([A-Z]*)(\d+)$/);
+  return !!m && m[1] === sp.prefix && m[2].length === sp.width && +m[2] >= sp.from && +m[2] <= sp.to;
+}
+
+/**
+ * 現場新增來賓(不在名單的人,例如備用憑證、臨時加入):
+ *   arg: { code?(備用代號,沒帶就自動取下一個沒用過的), name?, org?, type?, diet?, desk, opId }
+ * 建立一張本人票(標記「現場來賓」),並立刻報到+領禮。姓名可空白。
+ */
+function addGuest_(arg) {
+  if (seen_(arg.opId)) return { ok: true, replay: true };
+  var d = readTickets_(), guests = readGuests_(), used = {};
+  d.list.forEach(function (t) { used[norm_(t.code)] = true; });
+  Object.keys(guests.byCode).forEach(function (k) { used[k] = true; });
+  var code = String(arg.code || '').trim().toUpperCase();
+  if (code) {
+    if (!inSpare_(code)) return { ok: false, error: code + ' 不在備用代號範圍內,無法現場新增' };
+    if (used[norm_(code)]) return { ok: false, error: code + ' 已經有人使用' };
+  } else {
+    var sp = spareRange_();
+    if (sp) for (var n = sp.from; n <= sp.to; n++) { var c = spareCode_(sp, n); if (!used[norm_(c)]) { code = c; break; } }
+    if (!code) { var w = 1; while (used['w' + (w < 10 ? '00' : w < 100 ? '0' : '') + w]) w++; code = 'W' + (w < 10 ? '00' : w < 100 ? '0' : '') + w; }
+  }
+  var name = String(arg.name || '').trim().slice(0, 40) || ('來賓 ' + code);
+  var org = String(arg.org || '').trim().slice(0, 60), type = String(arg.type || '').trim().slice(0, 20) || '來賓';
+  var gift = getSetting_('備用貴賓報到禮') || 'A禮', desk = String(arg.desk || '?'), now = new Date();
+  var r = d.sh.getLastRow() + 1;
+  d.sh.getRange(r, 1, 1, COLS).setValues([[code, code, name, org, type, String(arg.diet || '').slice(0, 60), '', gift, now, desk, now, desk, '', '', GUEST_FLAG]]);
+  SpreadsheetApp.flush();
+  writeLogs_([[now, desk, '現場新增來賓+報到+領禮', code, '成功(' + name + ')']]);
+  markSeen_(arg.opId);
+  return { ok: true, code: code };
 }
 
 function addMember_(arg) {

@@ -110,6 +110,7 @@
   .b-waiting { background:#e0e7ff; color:#3730a3; } .b-noreply { background:#f3f4f6; color:var(--mute); } .b-declined { background:var(--badbg); color:var(--bad); }
   #rq { width:100%; font-size:17px; padding:10px; border:2px solid var(--line); border-radius:10px; }
   table { width:100%; border-collapse:collapse; font-size:16px; } td,th { padding:6px 4px; border-top:1px solid var(--line); text-align:left; }
+  .wi { width:100%; font-size:20px; padding:12px; margin-top:10px; border:2px solid var(--line); border-radius:12px; }
   .link { background:none; border:0; color:var(--pri); font-size:16px; padding:8px 0; }
   #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#111827; color:#fff; padding:12px 18px; border-radius:10px; font-size:17px; z-index:20; max-width:90vw; }
 </style>
@@ -142,6 +143,7 @@
     <div id="banner"></div>
     <div id="result"></div>
     <button class="link" id="dashBtn">🏠 概況</button>
+    <button class="link" id="walkBtn">➕ 現場新增來賓(備用憑證/不在名單)</button>
     <button class="link" id="rosterBtn">👥 名冊(誰到了、誰還沒到)</button>
     <div id="roster" class="card hidden"></div>
     <button class="link hidden" id="boardBtn">📊 看板(各報到處、禮品、葷素統計)</button>
@@ -202,12 +204,13 @@
   }
 
   /* ───── 本機暫存(斷網也能繼續) ───── */
-  function saveLocal() { store.set('snap', JSON.stringify(list())); store.set('queue', JSON.stringify(Q)); store.set('layout', JSON.stringify(L)); }
+  function saveLocal() { store.set('snap', JSON.stringify(list())); store.set('queue', JSON.stringify(Q)); store.set('layout', JSON.stringify(L)); store.set('spare', JSON.stringify(SPARE)); }
   function restoreLocal() {
     try {
       JSON.parse(store.get('snap') || '[]').forEach(function (t) { T[norm(t.code)] = t; });
       Q = JSON.parse(store.get('queue') || '[]');
       var lo = JSON.parse(store.get('layout') || 'null'); if (lo && lo.items) L = lo;
+      SPARE = JSON.parse(store.get('spare') || 'null');
     } catch (e) {}
   }
 
@@ -224,8 +227,9 @@
     Q.forEach(function (op) { (op.codes || [op.code]).forEach(function (c) { s[norm(c)] = 1; }); });
     return s;
   }
-  function mergeSnapshot(arr, layout) {
+  function mergeSnapshot(arr, layout, spare) {
     if (layout && layout.items) L = layout;
+    if (spare !== undefined) SPARE = spare;
     var pend = pendingCodes(), n = {};
     arr.forEach(function (t) { var k = norm(t.code); n[k] = (pend[k] && T[k]) ? T[k] : t; });
     T = n; saveLocal(); renderStats();
@@ -237,7 +241,7 @@
     google.script.run.withSuccessHandler(function (r) {
       pulling = false;
       if (r && r.auth === false) { showLogin(r.error); return; }
-      if (r && r.ok) { online = true; mergeSnapshot(r.tickets, r.layout); renderSync(); if (cb) cb(true); }
+      if (r && r.ok) { online = true; mergeSnapshot(r.tickets, r.layout, r.spare); renderSync(); if (cb) cb(true); }
       else { renderSync(); if (cb) cb(false); }
     }).withFailureHandler(function () {
       pulling = false; online = false; renderSync(); if (cb) cb(false);
@@ -326,7 +330,9 @@
 
   function computeStats() {
     var s = { total: 0, in: 0, gift: 0, byDesk: {}, gifts: {}, diets: {} };
+    s.declined = 0;
     list().forEach(function (t) {
+      if (t.flag === '回函不出席' && !t.inAt) { s.declined++; return; }   // 回函不出席:不算預計人數;到了才算
       s.total++;
       var gt = t.gift || '(未設定)'; s.gifts[gt] = s.gifts[gt] || { total: 0, given: 0 }; s.gifts[gt].total++;
       var dt = t.diet || '(未填)'; s.diets[dt] = (s.diets[dt] || 0) + 1;
@@ -355,9 +361,9 @@
   /* ───── 概況(一打開就看到的數據看板;全部用手機上的資料即時計算) ───── */
   var DASH_STYLES = [['map', '桌位圖'], ['ring', '圓環'], ['tile', '數字'], ['dots', '點陣']];
   var dashStyle = store.get('dash2') || 'map';
-  var L = { items: [], seats: 10 }, selTable = '', selTent = '';
+  var L = { items: [], seats: 10 }, selTable = '', selTent = '', SPARE = null, declAck = {}, curGate = false;
   function dashData() {
-    var l = list(), s = computeStats(), byType = {};
+    var l = list().filter(function (t) { return !(t.flag === '回函不出席' && !t.inAt); }), s = computeStats(), byType = {};
     l.forEach(function (t) { var k = t.type || '未分類'; var o = byType[k] = byType[k] || { n: 0, i: 0, g: 0 }; o.n++; if (t.inAt) o.i++; if (t.giftAt) o.g++; });
     var types = Object.keys(byType).sort(function (a, b) { return byType[b].n - byType[a].n; });
     var recent = l.filter(function (t) { return t.inAt; }).sort(function (a, b) { return a.inAt < b.inAt ? 1 : a.inAt > b.inAt ? -1 : 0; }).slice(0, 6);
@@ -587,6 +593,37 @@
   function banner(kind, title, sub) {
     $('banner').innerHTML = '<div class="banner ' + kind + '">' + title + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
   }
+  /* 備用憑證 / 不在名單的來賓:現場新增並報到(需連線) */
+  function isSpare(code) {
+    if (!SPARE) return false;
+    var m = String(code).trim().toUpperCase().match(/^([A-Z]*)(\d+)$/);
+    return !!m && m[1] === SPARE.prefix && m[2].length === SPARE.width && +m[2] >= SPARE.from && +m[2] <= SPARE.to;
+  }
+  function walkinCard(code) {
+    dashOn = false; cur = ''; $('banner').innerHTML = '';
+    $('result').innerHTML = '<div class="card"><div class="who">' + (code ? '備用貴賓憑證 ' + esc(code) : '現場新增來賓') + '</div>' +
+      '<div class="org">' + (code ? '這張卡尚未登記,可以直接入場。' : '這位不在名單上。') + '姓名、單位可以先空白,建議詢問後填寫。</div>' +
+      '<input class="wi" id="wName" placeholder="姓名(可空白)" autocomplete="off"><input class="wi" id="wOrg" placeholder="單位 / 職稱(可空白)" autocomplete="off">' +
+      '<div class="actions"><button class="btn main" id="wGo">✅ 報到並發禮</button><button class="link" id="wCancel">取消</button></div></div>';
+    $('wName').focus();
+    $('wCancel').onclick = function () { $('result').innerHTML = ''; $('q').focus(); };
+    $('wGo').onclick = function () {
+      if (needDesk()) return;
+      var btn = $('wGo'); btn.disabled = true;
+      google.script.run.withSuccessHandler(function (r) {
+        if (r && r.auth === false) { showLogin(r.error); return; }
+        if (!r || !r.ok) { btn.disabled = false; toast('⚠ ' + ((r && r.error) || '新增失敗')); return; }
+        pulling = false;
+        pullSnapshot(function () {
+          if (partyTickets(r.code).length) showParty(r.code, '', '<div class="banner ok">✔ 已新增並報到<small>' + esc(r.code) + '・請引導入座</small></div>');
+          toast('已新增 ' + r.code);
+        });
+      }).withFailureHandler(function () { btn.disabled = false; toast('⚠ 目前離線,無法新增。請恢復連線後再試。'); })
+        .api(PIN, 'addGuest', { code: code || '', name: $('wName').value, org: $('wOrg').value, desk: DESK, opId: uid() });
+    };
+  }
+  $('walkBtn').onclick = function () { walkinCard(''); window.scrollTo(0, 0); };
+
   function search(text) {
     text = String(text || '').trim(); if (!text) return;
     $('q').value = ''; $('banner').innerHTML = ''; dashOn = false;
@@ -598,6 +635,7 @@
       if (norm(t.code).indexOf(key) >= 0 || norm(t.name).indexOf(key) >= 0 || norm(t.org).indexOf(key) >= 0 || norm(t.party) === key) parties[norm(t.party)] = t.party;
     });
     var ks = Object.keys(parties);
+    if (!ks.length && isSpare(q)) { walkinCard(String(q).trim().toUpperCase()); return; }
     if (!ks.length) { $('result').innerHTML = ''; banner('bad', '❌ 查無此人:' + esc(text), '請改用姓名或單位搜尋,或請賓客出示邀請函'); }
     else if (ks.length === 1) showParty(parties[ks[0]], '');
     else renderList(ks.slice(0, 30).map(function (k) { return parties[k]; }));
@@ -624,7 +662,9 @@
     var ts = partyTickets(pid); if (!ts.length) return;
     var p = ts[0];
     var h = '<div class="card"><div class="who">' + esc(p.name || pid) + '</div><div class="org">' + esc(p.org) + (p.type ? '・' + esc(p.type) : '') + '・代號 ' + esc(pid) + '</div>' +
-      '<div class="chips"><span class="chip">桌次 ' + esc(p.table || '未排') + '</span><span class="chip gift">🎁 ' + esc(giftSummary(ts)) + '</span></div>';
+      '<div class="chips"><span class="chip">桌次 ' + esc(p.table || '未排') + '</span><span class="chip gift">🎁 ' + esc(giftSummary(ts)) + '</span>' + (p.flag === '現場來賓' ? '<span class="chip">現場來賓</span>' : '') + '</div>';
+    curGate = p.flag === '回函不出席' && !ts.some(function (t) { return t.inAt; }) && !declAck[pid];
+    if (curGate) h += '<div class="banner bad">⚠ 此貴賓回函為「不出席」<small>請確認是否為本人、並同意放行,再按下方確認。</small><div class="actions"><button class="btn sec" id="okDecl">確認放行</button></div></div>';
     ts.forEach(function (t) {
       var done = t.inAt && t.giftAt;
       h += '<div class="t"><input type="checkbox" data-c="' + esc(t.code) + '"' + (done ? '' : ' checked') + '>' +
@@ -671,6 +711,7 @@
         }).withFailureHandler(function () { toast('⚠ 目前離線,無法新增。請恢復連線後再試。'); }).api(PIN, 'addMember', { party: pid, desk: DESK, diet: diet });
       });
     };
+    if ($('okDecl')) $('okDecl').onclick = function () { declAck[pid] = true; showParty(pid, focus, preBanner); };
     updBtns();
   }
   /* 葷素選擇視窗:cb(字串);'' 代表「先不填」;取消不會呼叫 cb */
@@ -706,7 +747,7 @@
     var n = picked().length;
     $('doBoth').textContent = '✅ 報到並發禮(' + n + ' 人)';
     $('doIn').textContent = '只報到,禮品稍後再發(' + n + ' 人)';
-    $('doBoth').disabled = $('doIn').disabled = n === 0;
+    $('doBoth').disabled = $('doIn').disabled = n === 0 || curGate;
   }
 
   /* 按下去立刻生效(先改本機),再排隊送到試算表 */

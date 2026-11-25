@@ -420,7 +420,7 @@ function generateTickets_() {
     rs.unmatched.slice().reverse().forEach(function (nm) {
       warns.unshift('回函中的「' + nm + '」在名單找不到對應的人,請確認姓名是否一致(需手動處理,否則不會產生票券)');
     });
-    rs.mismatch.forEach(function (m) { warns.push(m); });
+    // 攜伴人數與飲食表對不上:一律以現場實際帶幾位為準(現場按「臨時多一位同行者」),不再提醒
     if (noRsvp) warns.push('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
       (auto.added.length ? '\n\n🆕 回函有填、但名單原本沒有,已自動加進「名單」並建立票券(共 ' + auto.added.length + ' 位):\n' + auto.added.map(function (a) { return '・' + a.code + ' ' + a.name + (a.org ? '(' + a.org + ')' : '') + (a.beyond ? ' ⚠ 超出備用代號範圍,沒有現成的憑證卡' : ''); }).join('\n') : '') +

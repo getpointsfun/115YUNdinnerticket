@@ -134,7 +134,7 @@ function setup() {
   }
   ensureSheet_(ss, SHEET.LOG, ['時間', '報到處', '動作', '票號', '結果']);
   ensureSheet_(ss, SHEET.MAIL, ['時間', '代號', '姓名', '信箱', '結果']);
-  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾', '每桌座位數', '備用代號', '備用貴賓報到禮'].forEach(function (nm) {
+  ['回函表單預填網址', '回函來源試算表', '寄送電子憑證', '寄件人名稱', '寄件信箱', '信件聯絡資訊', '憑證圖片資料夾', '每桌座位數', '備用代號', '備用貴賓報到禮', '回函自動加入名單', '回函自動建票'].forEach(function (nm) {
     var v = s.getRange(1, 1, s.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim(); });
     if (v.indexOf(nm) < 0) s.getRange(s.getLastRow() + 1, 1, 1, 2).setValues([[nm, '']]);
   });
@@ -186,8 +186,11 @@ function extractCode_(q) {
 
 /* ───────────── 由回函產生票券 ───────────── */
 
+var NAME_VARIANTS = { '鍾': '鐘', '臺': '台', '啓': '啟', '勲': '勳', '裏': '裡', '峯': '峰', '爲': '為', '衞': '衛', '羣': '群', '舘': '館', '塩': '鹽', '堃': '坤', '甯': '寧', '玗': '于' };
+/** 姓名比對用:全形/半形、空白、大小寫、常見異體字(鍾=鐘、臺=台、啓=啟…)都視為相同 */
 function nameKey_(s) {
-  return String(s == null ? '' : s).normalize('NFKC').replace(/[\s　]/g, '').toLowerCase();
+  var t = String(s == null ? '' : s).normalize('NFKC').replace(/[\s　]/g, '').toLowerCase();
+  return t.replace(/[鍾臺啓勲裏峯爲衞羣舘塩堃甯玗]/g, function (c) { return NAME_VARIANTS[c]; });
 }
 
 function readGuests_() {
@@ -232,13 +235,13 @@ function rsvpSheet_() {
  */
 function readRsvps_(guests) {
   var sh = rsvpSheet_();
-  var out = { map: {}, unmatched: [], mismatch: [] };
+  var out = { map: {}, unmatched: [], unmatchedInfo: [], mismatch: [] };
   if (!sh || sh.getLastRow() < 2) return out;
   var vals = sh.getDataRange().getValues();
   var head = vals[0].map(String);
   var col = function (pred) { for (var i = 0; i < head.length; i++) if (pred(head[i])) return i; return -1; };
   var has = function (k) { return function (h) { return h.indexOf(k) >= 0; }; };
-  var cCode = col(has('代號')), cName = col(has('姓名')), cOrg = col(has('單位')), cAtt = col(has('是否出席'));
+  var cCode = col(has('代號')), cName = col(has('姓名')), cOrg = col(has('單位')), cAtt = col(has('是否出席')), cTitle = col(has('職稱'));
   var cComp = col(function (h) { return h.indexOf('攜伴') >= 0 && h.indexOf('人數') >= 0; });
   var cTotal = col(function (h) { return h.indexOf('人數') >= 0 && h.indexOf('攜伴') < 0; });
   var cMails = [];   // 可能有多個信箱欄(表單內建「電子郵件地址」、自訂「聯絡信箱」):每筆取第一個有效的
@@ -285,7 +288,13 @@ function readRsvps_(guests) {
       if (cands.length === 1) g = cands[0];
       else if (cands.length > 1) { out.unmatched.push(label + '(名單有多位同名,請手動處理)'); continue; }
     }
-    if (!g) { if (label && !declined) out.unmatched.push(label); continue; }
+    if (!g) {
+      if (label && !declined) {
+        out.unmatched.push(label);
+        out.unmatchedInfo.push({ name: cName >= 0 ? String(row[cName]).trim() : label, org: cOrg >= 0 ? String(row[cOrg]).trim() : '', title: cTitle >= 0 ? String(row[cTitle]).trim() : '' });
+      }
+      continue;
+    }
     var n;
     if (cComp >= 0) { var m = String(row[cComp]).match(/\d+/); n = 1 + (m ? parseInt(m[0], 10) : 0); }
     else { var t = String(row[cTotal]).match(/\d+/); n = t ? parseInt(t[0], 10) : 1; }
@@ -324,11 +333,39 @@ function ticketRow_(code, party, idx, r, diet, flag) {
   return [code, party, name, lk(3), lk(4), diet, lk(5), idx === 0 ? lk(6) : companionGift_(), '', '', '', '', qrUrl, qrImg, flag || ''];
 }
 
+/**
+ * 「只要在回函裡就可以出席」:回函填出席、但名單找不到的人,自動加進「名單」(備用代號 VIP232… 依序),之後照一般貴賓產生票券與憑證。
+ * 「設定」:回函自動加入名單=否 可關閉;回函自動加入上限(預設 30)防止亂填。回傳新增清單 [{code,name,org}]。
+ */
+function autoAddFromRsvp_(rs, guests) {
+  var out = { added: [], skipped: [] };
+  if (getSetting_('回函自動加入名單') === '否' || !rs.unmatchedInfo || !rs.unmatchedInfo.length) return out;
+  var cap = parseInt(getSetting_('回函自動加入上限'), 10) || 30, sh = ss_().getSheetByName(SHEET.GUESTS);
+  var used = {}; Object.keys(guests.byCode).forEach(function (k) { used[k] = true; });
+  var tk = ss_().getSheetByName(SHEET.TICKETS);
+  if (tk && tk.getLastRow() > 1) tk.getRange(2, 1, tk.getLastRow() - 1, 1).getValues().forEach(function (r) { if (r[0] !== '') used[norm_(r[0])] = true; });
+  var sp = spareRange_() || { prefix: 'VIP', from: 232, to: 250, width: 3 }, n = sp.from, seen = {}, rows = [];
+  var gift = getSetting_('備用貴賓報到禮') || 'A禮';
+  rs.unmatchedInfo.forEach(function (u) {
+    var key = nameKey_(u.name); if (!key || seen[key]) return; seen[key] = true;
+    if (out.added.length >= cap) { out.skipped.push(u.name); return; }
+    var code; do { code = spareCode_(sp, n++); } while (used[norm_(code)]);
+    used[norm_(code)] = true;
+    var org = [u.org, u.title].filter(function (x) { return x; }).join('・');
+    rows.push([code, u.name, org, '來賓', '', gift, '回函自動加入(名單原本沒有)']);
+    out.added.push({ code: code, name: u.name, org: org, beyond: n - 1 > sp.to });
+  });
+  if (rows.length) { sh.getRange(sh.getLastRow() + 1, 1, rows.length, 7).setValues(rows); SpreadsheetApp.flush(); }
+  return out;
+}
+
 function generateTickets_() {
   return withLock_(function () {
     var ss = ss_();
     var guests = readGuests_();
     var rs = readRsvps_(guests);
+    var auto = autoAddFromRsvp_(rs, guests);
+    if (auto.added.length) { guests = readGuests_(); rs = readRsvps_(guests); }
     var rsvps = rs.map;
     var sh = ss.getSheetByName(SHEET.TICKETS);
     var existing = {};
@@ -386,6 +423,8 @@ function generateTickets_() {
     rs.mismatch.forEach(function (m) { warns.push(m); });
     if (noRsvp) warns.push('有 ' + noRsvp + ' 位貴賓尚未回函,已先各建立「本人」一張票(葷素顯示未填)');
     return '新增票券 ' + added + ' 張,既有票券 ' + updated + ' 張(已更新葷素)。' +
+      (auto.added.length ? '\n\n🆕 回函有填、但名單原本沒有,已自動加進「名單」並建立票券(共 ' + auto.added.length + ' 位):\n' + auto.added.map(function (a) { return '・' + a.code + ' ' + a.name + (a.org ? '(' + a.org + ')' : '') + (a.beyond ? ' ⚠ 超出備用代號範圍,沒有現成的憑證卡' : ''); }).join('\n') : '') +
+      (auto.skipped.length ? '\n⚠ 超過自動加入上限,以下未加入:' + auto.skipped.join('、') : '') +
       (declined ? '\n其中 ' + declined + ' 位回函「不出席」:仍有票券並已標記,現場掃到會先提醒確認,不算進預計人數。' : '') +
       (pubAdded ? '\n其中民眾 ' + pubAdded + ' 位(「民眾」工作表中已填姓名的)。' : '') +
       (warns.length ? '\n\n⚠ 注意(共 ' + warns.length + ' 項):\n' + warns.slice(0, 20).join('\n') : '');
@@ -934,6 +973,9 @@ function sendPendingMail_() {
 
 /** 表單送出時由觸發器呼叫 */
 function onRsvpSubmit() {
+  try {
+    if (getSetting_('回函自動建票') !== '否') generateTickets_();      // 新回函:自動建票(含自動加入名單),不用再按選單 ④
+  } catch (e) { try { mailSheet_().appendRow([new Date(), '', '', '', '建票失敗:' + String(e && e.message || e).slice(0, 120)]); } catch (e2) {} }
   if (getSetting_('寄送電子憑證') === '否') return;
   try { sendPendingMail_(); }
   catch (e) { try { mailSheet_().appendRow([new Date(), '', '', '', '失敗:' + String(e && e.message || e).slice(0, 120)]); } catch (e2) {} }

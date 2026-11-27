@@ -30,6 +30,8 @@ td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;vertic
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid #0003}
 .btn{display:inline-block;padding:6px 14px;border-radius:6px;background:var(--warn);color:#fff;text-decoration:none;font-size:13px}.btn.off{background:#999;pointer-events:none}
 .pB{display:none}svg.rain .pA{display:none}svg.rain .pB{display:inline}
+svg.noflow .flow{display:none}svg.nolit .lit{display:none}
+.tg{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin:6px 2px}.tg label{cursor:pointer}
 .t{cursor:pointer}.t:hover .hl{stroke:var(--warn);stroke-width:3}
 text{font-family:inherit;fill:var(--fg);pointer-events:none}
 p.m{font-size:13px;margin:8px 0 0}
@@ -42,6 +44,7 @@ p.m{font-size:13px;margin:8px 0 0}
 <div class="note">⚠️ 依<b>主辦企劃書、場地配置簡報(方案 A 晴天、方案 B 雨備)與衛星圖</b>繪製;比例約 6.7 px = 1 m。簡報為示意圖、非等比例,各設施位置、尺寸與桌數是依簡報與規格推算,<b>實際請以主辦單位與廠商現場放樣為準</b>。虛線外框表示位置待確認。</div>
 <div class="bar" id="modes"></div>
 <div class="bar" id="views"></div>
+<div class="tg"><label><input type="checkbox" id="tgFlow" checked> 顯示報到分流動線</label><label><input type="checkbox" id="tgLit" checked> 顯示燈光</label></div>
 <div class="wrap"><svg id="map" viewBox="60 830 1790 940" role="img" aria-label="場地配置圖"></svg></div>
 <div class="legend" id="legend"></div>
 <div class="grid">
@@ -53,6 +56,10 @@ p.m{font-size:13px;margin:8px 0 0}
 <h3>邀請名單分類(僅統計人數,不含個資)</h3><table id="listTbl"></table><p class="m" id="listNote"></p></div>
 <div class="card" style="margin-top:14px"><h2>貴賓回函</h2><p class="m" id="vipText" style="margin-top:0"></p>
 <p style="margin:8px 0"><a id="vipLink" class="btn" target="_blank" rel="noopener"></a></p><table id="vipTbl"></table></div>
+<div class="card" style="margin-top:14px"><h2>報到區分流(貴賓・民眾・家庭・媒體)</h2><table id="checkin"></table><p class="m" id="checkNote"></p></div>
+<div class="card" style="margin-top:14px"><h2>活動議程(暫定)</h2><table id="agenda"></table><p class="m" id="agendaNote"></p></div>
+<div class="card" style="margin-top:14px"><h2>燈光規劃</h2><table id="lighting"></table><p class="m" id="lightNote"></p></div>
+<div class="card" style="margin-top:14px"><h2>現場待確認(依空拍圖與企劃書)</h2><table id="fieldChk"></table></div>
 <div class="card" style="margin-top:14px"><h2>分區說明與動線</h2><table id="zones"></table></div>
 <div class="card" style="margin-top:14px"><h2>設施規格一覽(依企劃書)</h2><table id="specs"></table></div>
 </main>
@@ -81,17 +88,28 @@ label(620,1428,"生態池(禁入)",22,{style:"fill:#245"});
 box(92,985,30,30,"#2a6bb5","P",20,{tc:"#fff"});label(150,1000,"停車場",14,{});
 box(92,1030,30,30,"#e0572b","救",18,{tc:"#fff"});label(165,1045,"救護車停放",14,{});
 
-// ── 入口廣場與周邊(企劃書 P5–P12)──
+// ── 入口廣場與報到分流(企劃書 P5–P12;報到分流為依需求新增)──
 el("circle",{cx:1320,cy:1440,r:70,fill:css("--path")});
 el("path",{d:"M1272 1442 A48 48 0 0 1 1376 1430",fill:"none",stroke:"#e07a1f","stroke-width":14,"stroke-linecap":"round"});
-label(1415,1465,"入口",26,{style:"fill:#e07a1f"});label(1322,1368,"入口意象 W8×H3.5 m",13,{style:"fill:#8a4a10"});
-el("circle",{cx:1320,cy:1462,r:20,fill:"#6b2a9a"});label(1320,1462,"成果B",11,{style:"fill:#fff"});
-label(1322,1500,"成果展示區 B(Ø6 m)",13,{style:"fill:#222"});
-box(1262,1432,20,20,"#fff","",10,{"stroke-width":2});label(1226,1428,"貴賓報到區",13,{style:"fill:#222"});
-box(1356,1470,20,20,"#fff","",10,{"stroke-width":2},svg,20);label(1412,1508,"服務台",14,{style:"fill:#222"});
-box(1255,1400,10,10,"#fff","",8,{});label(1236,1398,"場地圖",11,{style:"fill:#222"});
-box(1400,1505,67,10,"#fff","",8,{"stroke-dasharray":"4 2"},svg,22);label(1450,1536,"拍照打卡區 W4 m(待定位)",11,{style:"fill:#222"});
-box(1305,1566,67,20,"#e9d8ff","",8,{"stroke-dasharray":"4 2"});label(1338,1598,"成果展示區 A W10 m(待定位)",11,{style:"fill:#222"});
+label(1322,1413,"入口",16,{style:"fill:#8a4a10;font-weight:700"});
+el("circle",{cx:1320,cy:1452,r:20,fill:"#6b2a9a"});label(1320,1452,"成果B",11,{style:"fill:#fff"});
+label(1312,1503,"成果展示區 B Ø6 m",11,{style:"fill:#222"});
+box(1255,1400,10,10,"#fff","",8,{});
+// 報到櫃台(3×3 m 帳篷 ≈ 20 px)
+const desk=(x,y,w,fill,t,up)=>{box(x,y,w,16,fill,"",10,{"stroke-width":1.5});label(x+w/2,up?y-14:y+31,t,12,{style:"fill:#222"})};
+desk(1230,1426,26,"#f2c14e","貴賓・長官\n專人接待",true);
+desk(1396,1428,26,"#c9a4e8","媒體\n報到");
+desk(1370,1476,24,"#fff","服務台\n客服・補件");
+// 民眾 ×2、家庭 ×1 櫃台與蛇行排隊欄(鐵圍欄)
+[["民眾 A","#7fb2e5"],["民眾 B","#7fb2e5"],["家庭","#8fd19a"]].forEach(([t,c],i)=>{const x=1304+26*i;
+  box(x,1572,22,14,c,"",10,{"stroke-width":1.5});label(x+11,1596,t,11,{style:"fill:#222"})});
+for(let i=0;i<4;i++)el("line",{x1:1302+26*i,y1:1536,x2:1302+26*i,y2:1570,stroke:"#555","stroke-width":1.6,"stroke-dasharray":"3 2"});
+label(1342,1526,"民眾・家庭報到(排隊區)",11,{style:"fill:#222"});
+// 媒體聯訪區(背板)、成果展示區 A、拍照打卡區
+box(1440,1462,44,8,"#b48ad6","",8,{},svg,22);label(1470,1486,"媒體聯訪區\n(背板)",11,{style:"fill:#222"});
+box(1410,1506,67,20,"#e9d8ff","",8,{"stroke-dasharray":"4 2"},svg,22);label(1448,1562,"成果展示區 A W10×H2.5 m\n(待定位)",11,{style:"fill:#222"});
+box(1500,1500,27,10,"#fff","",8,{"stroke-dasharray":"4 2"},svg,22);label(1600,1516,"拍照打卡區 W4 m(待定位)",11,{style:"fill:#222"});
+label(1533,1652,"工作人員・表演團體・攤商 專用通道",12,{style:"fill:#222"});
 // 市集區:27 頂 3×3 m 攤位(企劃書 P18)
 for(let i=0;i<27;i++){const x=1255+i*14.3,y=1328+i*5.8;el("rect",{x,y:y-11,width:14,height:22,fill:css("--mkt"),stroke:"#1d5a2c","stroke-width":1,transform:`rotate(${ANG} ${x} ${y})`})}
 label(1585,1385,"市集區 27 攤(3×3 m)",22,{transform:"rotate(22 1585 1385)",style:"fill:#2f9a4a"});
@@ -180,6 +198,35 @@ const tablesB=[];
    for(let i=0;i<10;i++){const a=i/10*2*Math.PI;el("circle",{cx:t.x+7.6*Math.cos(a),cy:t.y+7.6*Math.sin(a),r:2.4,fill:css("--chair")},null,g)}
    el("circle",{class:"hl",cx:t.x,cy:t.y,r:5,fill:css("--tbl"),stroke:css("--tblst"),"stroke-width":1.2},null,g);g.addEventListener("click",()=>show(t))})}
 
+// ══════════ 報到分流動線 ══════════
+{const defs=el("defs"),COL={vip:"#d29a0a",pub:"#2a6bb5",fam:"#2e9a4a",med:"#7b3fb0",stf:"#666"};
+ Object.entries(COL).forEach(([k,c])=>{const m=el("marker",{id:"m-"+k,viewBox:"0 0 10 10",refX:8,refY:5,markerWidth:7,markerHeight:7,orient:"auto"},null,defs);el("path",{d:"M0 0 L10 5 L0 10z",fill:c},null,m)});
+ const flow=(k,a,cls="")=>el("polyline",{points:pts(a),fill:"none",stroke:COL[k],"stroke-width":3.2,"stroke-dasharray":"9 5","stroke-linecap":"round","stroke-linejoin":"round","marker-end":`url(#m-${k})`,class:("flow "+cls).trim()});
+ // 入場 → 各報到櫃台(兩方案共用)
+ flow("vip",[[1322,1394],[1290,1410],[1250,1428]]);flow("pub",[[1332,1396],[1335,1500],[1316,1566]]);flow("fam",[[1340,1396],[1362,1500],[1367,1566]]);
+ flow("med",[[1340,1394],[1380,1410],[1402,1426]]);flow("med",[[1412,1446],[1448,1460]]);
+ // 方案 A:報到後的去向
+ flow("vip",[[1236,1448],[1205,1470]],"pA");flow("vip",[[1234,1450],[1100,1514],[1042,1528]],"pA");flow("vip",[[1228,1440],[1100,1405],[978,1386]],"pA");
+ flow("pub",[[1316,1592],[1290,1630],[1200,1656],[900,1668],[640,1648],[560,1604]],"pA");flow("pub",[[1286,1624],[1190,1588],[1162,1572]],"pA");
+ flow("fam",[[1367,1592],[1345,1642],[1220,1664],[900,1680],[560,1662],[430,1614]],"pA");
+ flow("med",[[1440,1486],[1350,1545],[1262,1612],[1120,1640],[1052,1618]],"pA");flow("stf",[[1470,1612],[1330,1670],[1120,1674],[1072,1656]],"pA");
+ // 方案 B(雨備):去向接龍帳
+ flow("vip",[[1236,1448],[1198,1478],[1166,1490]],"pB");flow("pub",[[1316,1592],[1290,1622],[1200,1612],[1150,1590]],"pB");
+ flow("fam",[[1367,1592],[1300,1640],[1200,1632],[1160,1606]],"pB");flow("med",[[1440,1486],[1350,1528],[1236,1616]],"pB");
+ flow("stf",[[1470,1612],[1250,1672],[900,1672],[880,1590],[930,1500]],"pB");
+ [["貴賓・長官","vip",1190,1410],["民眾","pub",1350,1540],["家庭","fam",1400,1590],["媒體","med",1470,1450],["工作人員","stf",1400,1650]].forEach(([t,k,x,y])=>{});
+}
+// ══════════ 燈光 ══════════
+{const lamp=(x,y,strong,cls="lit")=>el("circle",{cx:x,cy:y,r:strong?4.4:3,fill:strong?"#ffe14d":"#fff6c4",stroke:"#d89a00","stroke-width":strong?1.6:1.1,"stroke-dasharray":strong?"none":"2 1.5",class:cls});
+ el("circle",{cx:1320,cy:1452,r:44,fill:"#ffe680",opacity:.34,class:"lit"});
+ for(let i=0;i<8;i++){const a=i/8*2*Math.PI;lamp(1320+31*Math.cos(a),1452+31*Math.sin(a),true)}
+ el("rect",{x:1402,y:1496,width:92,height:44,fill:"#ffe680",opacity:.34,class:"lit",transform:"rotate(22 1448 1518)"});
+ for(let i=0;i<6;i++){const [x,y]=R(1448,1516,(i-2.5)*12,-12,22);lamp(x,y,true)}
+ 
+ [[1448,1458],[1480,1470],[1272,1442],[1376,1430],[1243,1424],[1409,1426],[1316,1566],[1366,1566]].forEach(([x,y])=>lamp(x,y,false));
+ [[665,1166],[785,1222],[918,1275],[1040,1330],[1162,1380],[660,1622],[770,1604],[862,1612]].forEach(([x,y])=>lamp(x,y-22,false,"lit pA"));
+ [[1175,1650],[1236,1650]].forEach(([x,y])=>lamp(x,y,false))}
+
 // 比例尺
 el("rect",{x:120,y:1730,width:134,height:7,fill:"#222"});label(187,1716,"約 20 m",18);
 el("path",{d:"M1700 900 L1712 945 L1700 935 L1688 945Z",fill:"#222"});label(1700,965,"N(約略)",12);
@@ -251,11 +298,54 @@ document.getElementById("specs").innerHTML=`<tr><th>項目</th><th>規格(企劃
 <tr><td>雨備接龍帳</td><td>30×30 m,6 區自助區,涵蓋舞台頂棚</td></tr>
 <tr><td>攤位</td><td>3×3 m 帳篷 27 頂(服務台、會議桌 2 張、塑膠椅 4 張)</td></tr>`;
 
+// 報到分流
+{const MAXP=500,GRP=4,SEC=30,groups=Math.ceil(MAXP/GRP),perDesk=Math.floor(90*60/SEC),peak=Math.round(groups*.7),peakRate=(peak/30).toFixed(1);
+ document.getElementById("checkin").innerHTML=`<tr><th>類別</th><th>對象</th><th>櫃台與位置</th><th>去向</th><th>備註</th></tr>
+ <tr><td><span class="sw" style="background:#d29a0a"></span>貴賓・中央長官</td><td>邀請來賓、中央長官 50 席</td><td>入口廣場西側專用櫃台</td><td>專人帶位 → 帳篷 1、4、6(金框)</td><td>依回函預先備好名牌、桌號;免排隊</td></tr>
+ <tr><td><span class="sw" style="background:#2a6bb5"></span>民眾(集點報名)</td><td>集點錄取者,每組最多 4 人</td><td>東南草地 2 個櫃台,蛇行排隊</td><td>→ 單峰天幕、戶外用餐區</td><td>電子票券 + 身分證驗票(企劃書)</td></tr>
+ <tr><td><span class="sw" style="background:#2e9a4a"></span>家庭</td><td>親子、三代同堂(每組最多 4 人)</td><td>東南草地 1 個專用櫃台,通道加寬(嬰兒車)</td><td>→ 戶外海灘桌椅區</td><td>桌位優先靠近廁所</td></tr>
+ <tr><td><span class="sw" style="background:#7b3fb0"></span>媒體</td><td>採訪媒體</td><td>入口廣場東側專用櫃台</td><td>→ 媒體聯訪區(成果展示區 A 旁)→ 舞台前拍攝位</td><td>發採訪證;聯訪前由專人引導</td></tr>
+ <tr><td><span class="sw" style="background:#666"></span>工作人員・表演團體・攤商</td><td>後台、廚務、攤商</td><td>備餐區側專用通道</td><td>→ 舞台後台 / 市集</td><td>與賓客動線完全分開</td></tr>
+ <tr><td>服務台</td><td>客服、補件、遺失物</td><td>入口廣場東側</td><td>—</td><td>企劃書:服務台人員 5 人</td></tr>`;
+ document.getElementById("checkNote").innerHTML=`<b>流量估算(假設值):</b>民眾名額最多 ${MAXP} 人、每組最多 ${GRP} 人 ≈ ${groups} 組。假設每組驗票 ${SEC} 秒,1 個櫃台 90 分鐘(16:00–17:30)可處理約 ${perDesk} 組;若 70%(${peak} 組)集中在最後 30 分鐘到場,約每分鐘 ${peakRate} 組,2 個民眾櫃台 + 1 個家庭櫃台足夠。<br><b>人力:</b>企劃書的服務台人員 5 人 + 引導機動人員 5 人 = 10 人,建議配置(待確認):貴賓 2、民眾 3、家庭 1、媒體 1、服務台 1、動線引導 2。<br><b>要確認:</b>「貴賓、民眾、家庭、媒體」之外還有哪些對象(例如得獎者、表演團體、攤商)要獨立報到?`}
+
+// 議程
+document.getElementById("agenda").innerHTML=`<tr><th>時間</th><th>項目</th><th>地點</th><th>企劃書原定</th></tr>
+<tr><td>16:00–17:30</td><td>賓客報到、帶位入席(輕音樂)</td><td>報到區分流、各用餐區</td><td>同左</td></tr>
+<tr><td>17:30–17:35</td><td><b>主持人開場</b></td><td>舞台</td><td>17:30–17:40 主持人開場</td></tr>
+<tr><td>17:35–17:45</td><td><b>致詞</b>(長官)</td><td>舞台;貴賓區就座</td><td>(新增)</td></tr>
+<tr><td>17:45–17:55</td><td><b>頒獎</b></td><td>舞台</td><td>(新增)</td></tr>
+<tr><td>17:55–18:00</td><td>宣布開席,BUFFET 開放</td><td>各自助區</td><td>17:55–18:00 開席</td></tr>
+<tr><td>18:00–18:15</td><td><b>媒體聯訪</b>(長官、得獎者)</td><td>媒體聯訪區(背板,需補光)</td><td>(新增)</td></tr>
+<tr><td>18:00–20:00</td><td>音樂饗宴;表演團體 1(舞台劇)改在此段開頭</td><td>舞台</td><td>表演團體 1 原在 17:40–17:55</td></tr>
+<tr><td>20:00–21:00</td><td>逛市集、看成果、玩體驗(輕音樂)</td><td>市集區、成果展示區 A / B(需燈光)</td><td>同左</td></tr>`;
+document.getElementById("agendaNote").innerHTML=`<b>為什麼要調整:</b>企劃書的「開幕活動」只有 17:40–17:55 共 15 分鐘,而且已排了表演團體 1(舞台劇,10–20 分鐘);再加上致詞與頒獎就塞不下。我的草案把表演團體 1 移到開席後,18:00–20:00 的音樂饗宴本來就只排了約 60 分鐘節目,有空檔。<br><b>待確認:</b>致詞人數與每人時間、得獎者人數、媒體聯訪要不要與開席同時進行(長官離席時間)。12/5 日落約在 17:00 前後(請以氣象署當日資料為準),開席時天色已暗,舞台與各區都需要照明。`
+
+// 燈光
+document.getElementById("lighting").innerHTML=`<tr><th>位置</th><th>規格</th><th>等級</th><th>建議做法(非企劃書原文)</th></tr>
+<tr><td>成果展示區 A</td><td>truss,W10×H2.5 m</td><td><b>必設</b></td><td>展區內側 LED 條燈 + 外側投射燈照亮看板與展品</td></tr>
+<tr><td>成果展示區 B</td><td>直徑約 6 m × H2.5 m(直立式或隧道)</td><td><b>必設</b></td><td>環形燈排、內部照明,避免眩光</td></tr>
+<tr><td>媒體聯訪區背板</td><td>約 3 m 寬</td><td>建議</td><td>兩側補光(面光),避免逆光</td></tr>
+<tr><td>入口意象、報到櫃台</td><td>W8×H3.5 m</td><td>建議</td><td>企劃書:入口意象結合燈飾;櫃台需足夠照度看清證件</td></tr>
+<tr><td>BUFFET、帳篷區、廁所</td><td>—</td><td>企劃書已含</td><td>企劃書:含各帳篷區照明;廁所含內部照明</td></tr>`;
+document.getElementById("lightNote").innerHTML=`<b>電力:</b>企劃書規劃發電機 2 台(60 kW),含燈光音響、各帳篷區照明,另預留 20% 以上備用電力。請確認<b>成果展示區 A / B 的燈光是否已含在內</b>,並預留專用迴路;兩區位置(A 待定位)確定後再放樣。地圖上黃色亮點為必設燈光、淡黃虛線為建議照明,可用上方開關隱藏。`;
+
+// 現場待確認
+document.getElementById("fieldChk").innerHTML=`<tr><th>項目</th><th>說明</th></tr>
+<tr><td>廣場中央的既有涼亭</td><td>空拍圖可見入口一端的廣場有褐色屋頂涼亭;成果展示區 B(Ø6 m)與入口意象是否與它衝突,需現場確認</td></tr>
+<tr><td>草地上的成排小樹</td><td>空拍圖顯示草地散植整齊的小樹;戶外海灘桌椅與天幕的位置要避開</td></tr>
+<tr><td>停車場容量</td><td>園區既有小停車場看起來只能停十餘輛(空拍圖估計);500 人以上需另覓停車場與接駁</td></tr>
+<tr><td>方位</td><td>空拍圖的方位與主辦圖相反(約旋轉 180 度),但涼亭、小停車場、入口在公園同一端,與本圖一致;本圖以主辦圖方位為準</td></tr>
+<tr><td>周邊</td><td>公園被樹林帶、堤防道路與農地環繞;車輛進出只有雲24 鄉道一側</td></tr>`;
+
+document.getElementById("tgFlow").onchange=e=>svg.classList.toggle("noflow",!e.target.checked);
+document.getElementById("tgLit").onchange=e=>svg.classList.toggle("nolit",!e.target.checked);
+
 // 圖例
-document.getElementById("legend").innerHTML=[["#fff","海灘桌椅組(4 人)"],["var(--tent)","天幕帳(48 席)"],["#d29a0a","建議貴賓帳篷"],["var(--buf)","BUFFET"],["var(--stage)","舞台"],["var(--mkt)","市集攤位"],["var(--prep)","備餐區"],["#b9a5d6","廁所"],["#bfe0f5","洗滌區"],["var(--pond)","生態池(禁入)"],["#e6e6ee","雨備接龍帳"]].map(([c,n])=>`<span><i class="sw" style="background:${c}"></i>${n}</span>`).join("");
+document.getElementById("legend").innerHTML=[["#fff","海灘桌椅組(4 人)"],["var(--tent)","天幕帳(48 席)"],["#d29a0a","建議貴賓帳篷"],["var(--buf)","BUFFET"],["var(--stage)","舞台"],["var(--mkt)","市集攤位"],["var(--prep)","備餐區"],["#b9a5d6","廁所"],["#bfe0f5","洗滌區"],["var(--pond)","生態池(禁入)"],["#e6e6ee","雨備接龍帳"],["#ffe14d","燈光(A/B 必設)"],["#fff6c4","建議照明"],["#d29a0a","貴賓動線"],["#2a6bb5","民眾動線"],["#2e9a4a","家庭動線"],["#7b3fb0","媒體動線"],["#666","工作人員動線"]].map(([c,n])=>`<span><i class="sw" style="background:${c}"></i>${n}</span>`).join("");
 
 // 方案 / 視角切換
-const views={"全區":"60 830 1790 940","戶外用餐區":"200 1000 760 700","休閒用餐區(天幕帳)":"860 1300 440 380","舞台與後台":"900 1540 300 180","入口與市集":"1180 1280 660 440"};
+const views={"全區":"60 830 1790 940","戶外用餐區":"200 1000 760 700","休閒用餐區(天幕帳)":"860 1300 440 380","舞台與後台":"900 1540 300 180","入口與市集":"1180 1280 660 440","報到區分流":"1190 1350 340 290"};
 const modeBar=document.getElementById("modes"),viewBar=document.getElementById("views");
 function setView(v,btn){svg.setAttribute("viewBox",v);[...viewBar.children].forEach(x=>x.className="");if(btn)btn.className="on"}
 [["方案 A・晴天(天幕帳 + 海灘桌椅)",false],["方案 B・雨備(接龍帳 + 圓桌)",true]].forEach(([n,rain],i)=>{const b=document.createElement("button");b.textContent=n;if(!i)b.className="on";

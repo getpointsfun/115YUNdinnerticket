@@ -41,7 +41,7 @@ p.m{font-size:13px;margin:8px 0 0}
 <main>
 <h1>西螺森活武樹園區 場地配置圖</h1>
 <p class="sub">風沙退場・雲林好食宴(115 年 YUN 晚餐券)・115/12/5(週六)16:00–21:00</p>
-<div class="note">⚠️ 依<b>主辦企劃書、場地配置簡報(方案 A 晴天、方案 B 雨備)與衛星圖</b>繪製;比例約 6.7 px = 1 m。簡報為示意圖、非等比例,各設施位置、尺寸與桌數是依簡報與規格推算,<b>實際請以主辦單位與廠商現場放樣為準</b>。虛線外框表示位置待確認。</div>
+<div class="note">⚠️ 依<b>主辦企劃書、場地配置簡報(方案 A 晴天、方案 B 雨備)與衛星圖</b>繪製;比例約 6.7 px = 1 m(已用空拍圖校正,整體誤差約 ±10%,見下方「尺寸校正」)。簡報為示意圖、非等比例,各設施位置、尺寸與桌數是依簡報與規格推算,<b>實際請以主辦單位與廠商現場放樣為準</b>。虛線外框表示位置待確認。</div>
 <div class="bar" id="modes"></div>
 <div class="bar" id="views"></div>
 <div class="tg"><label><input type="checkbox" id="tgFlow" checked> 顯示報到分流動線</label><label><input type="checkbox" id="tgLit" checked> 顯示燈光</label></div>
@@ -59,6 +59,7 @@ p.m{font-size:13px;margin:8px 0 0}
 <div class="card" style="margin-top:14px"><h2>報到區分流(貴賓・民眾・家庭・媒體)</h2><table id="checkin"></table><p class="m" id="checkNote"></p></div>
 <div class="card" style="margin-top:14px"><h2>活動議程(暫定)</h2><table id="agenda"></table><p class="m" id="agendaNote"></p></div>
 <div class="card" style="margin-top:14px"><h2>燈光規劃</h2><table id="lighting"></table><p class="m" id="lightNote"></p></div>
+<div class="card" style="margin-top:14px"><h2>尺寸校正(依空拍圖)</h2><table id="scaleTbl"></table><p class="m" id="scaleNote"></p></div>
 <div class="card" style="margin-top:14px"><h2>現場待確認(依空拍圖與企劃書)</h2><table id="fieldChk"></table></div>
 <div class="card" style="margin-top:14px"><h2>分區說明與動線</h2><table id="zones"></table></div>
 <div class="card" style="margin-top:14px"><h2>設施規格一覽(依企劃書)</h2><table id="specs"></table></div>
@@ -331,8 +332,16 @@ document.getElementById("lighting").innerHTML=`<tr><th>位置</th><th>規格</th
 document.getElementById("lightNote").innerHTML=`<b>電力:</b>企劃書規劃發電機 2 台(60 kW),含燈光音響、各帳篷區照明,另預留 20% 以上備用電力。請確認<b>成果展示區 A / B 的燈光是否已含在內</b>,並預留專用迴路;兩區位置(A 待定位)確定後再放樣。地圖上黃色亮點為必設燈光、淡黃虛線為建議照明,可用上方開關隱藏。`;
 
 // 現場待確認
+document.getElementById("scaleTbl").innerHTML=`<tr><th>參考物</th><th>假設的真實尺寸</th><th>空拍圖量到</th><th>推算比例</th></tr>
+<tr><td>生態池長度</td><td>約 63 m(Google 地圖比例尺量得)</td><td>約 250 px</td><td>約 4.0 px/m</td></tr>
+<tr><td>停車格</td><td>標準車格寬 2.5 m</td><td>約 10 px/格</td><td>約 4.0 px/m</td></tr>
+<tr><td>汽車</td><td>小客車長約 4.5 m</td><td>約 16–17 px</td><td>約 3.7 px/m</td></tr>
+<tr><td>斑馬線寬度</td><td>約 3 m</td><td>約 11 px</td><td>約 3.8 px/m</td></tr>
+<tr><td><b>結論</b></td><td></td><td></td><td><b>約 3.9 px/m(3.6–4.2)</b></td></tr>`;
+document.getElementById("scaleNote").innerHTML=`<b>與本圖比對:</b>生態池長度本圖 63 m、空拍圖 64 m,吻合。步道環圈(沿道路 × 垂直)本圖約 152 × 78 m,空拍圖依 3.9 px/m 約 136 × 75 m(3.6 px/m 時 148 × 81 m),本圖在長邊方向偏大約 0–12%,這是因為主辦圖是示意圖、各處比例不一致。<br><b>以空拍圖量到的實體:</b>入口廣場圓形鋪面直徑約 21 m;廣場上的既有涼亭約 14 × 10 m,佔掉廣場大半;小停車場寬約 29 m(約 11 個車格);停車場北側另有兩棟約 11–12 m 長的既有小建物(用途待確認,可能是廁所或管理室)。<br><b>可信度:</b>參考物的標準尺寸(車格 2.5 m、汽車 4.5 m、斑馬線寬)是我的假設,且空拍圖若不是正射影像,邊緣會變形。要進一步確定,只需現場量一個距離(例如生態池長度或停車格寬),我就能把整張圖的比例釘死。`;
 document.getElementById("fieldChk").innerHTML=`<tr><th>項目</th><th>說明</th></tr>
-<tr><td>廣場中央的既有涼亭</td><td>空拍圖可見入口一端的廣場有褐色屋頂涼亭;成果展示區 B(Ø6 m)與入口意象是否與它衝突,需現場確認</td></tr>
+<tr><td>廣場中央的既有涼亭</td><td>空拍圖量得涼亭約 14 × 10 m、廣場直徑約 21 m;成果展示區 B(Ø6 m)與入口意象(寬 8 m)很可能與涼亭衝突,需現場確認可否移位</td></tr>
+<tr><td>停車場北側的既有小建物</td><td>兩棟約 11–12 m 長,用途不明(可能是廁所或管理室),若是廁所可減少流動廁所數量</td></tr>
 <tr><td>草地上的成排小樹</td><td>空拍圖顯示草地散植整齊的小樹;戶外海灘桌椅與天幕的位置要避開</td></tr>
 <tr><td>停車場容量</td><td>園區既有小停車場看起來只能停十餘輛(空拍圖估計);500 人以上需另覓停車場與接駁</td></tr>
 <tr><td>方位</td><td>空拍圖的方位與主辦圖相反(約旋轉 180 度),但涼亭、小停車場、入口在公園同一端,與本圖一致;本圖以主辦圖方位為準</td></tr>
